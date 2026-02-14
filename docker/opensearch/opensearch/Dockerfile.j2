@@ -1,16 +1,3 @@
-{% if base_arch == 'ppc64le' %}
-FROM {{ base_image }}:{{ base_distro_tag }} AS opensearch-builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-21-jdk-headless git ca-certificates curl
-ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-ppc64el
-WORKDIR /build
-RUN git clone --depth 1 --branch 2.18.0 \
-    https://github.com/opensearch-project/OpenSearch.git
-WORKDIR /build/OpenSearch
-RUN ./gradlew :distribution:archives:no-jdk-linux-ppc64le-tar:assemble \
-    -Dbuild.snapshot=false
-{% endif %}
-
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
 {% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
@@ -32,7 +19,11 @@ ENV OPENSEARCH_INITIAL_ADMIN_PASSWORD="Kolla24OpenSearch"
 
 {{ macros.install_packages(opensearch_packages | customizable("packages")) }}
 
-COPY --from=opensearch-builder /build/OpenSearch/distribution/archives/no-jdk-linux-ppc64le-tar/build/distributions/opensearch-min-*.tar.gz /tmp/
+{# Tarball is pre-built outside Docker by CI and placed in the build context.
+   Docker's legacy builder cannot COPY --from a cross-platform stage, so we
+   build with Gradle natively on the amd64 CI runner. OpenSearch is pure Java
+   bytecode, so the resulting tarball is platform-independent. #}
+COPY opensearch-min-*.tar.gz /tmp/
 RUN tar -xzf /tmp/opensearch-min-*.tar.gz -C /usr/share \
     && mv /usr/share/opensearch-* /usr/share/opensearch \
     && mkdir -p /etc/opensearch \

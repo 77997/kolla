@@ -139,6 +139,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pre-build OpenSearch tarball for ppc64le
+        if: matrix.profile == 'infra'
+        run: |
+          # OpenSearch is Java bytecode - platform-independent. Build natively
+          # on the amd64 runner to avoid both QEMU crypto emulation bugs and
+          # Docker legacy builder cross-platform COPY --from limitations.
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/opensearch/opensearch:/output" \
+            eclipse-temurin:21-jdk \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+              git clone --depth 1 --branch 2.18.0 \
+                https://github.com/opensearch-project/OpenSearch.git /build/OpenSearch
+              cd /build/OpenSearch
+              ./gradlew :distribution:archives:no-jdk-linux-ppc64le-tar:assemble \
+                -Dbuild.snapshot=false
+              cp distribution/archives/no-jdk-linux-ppc64le-tar/build/distributions/opensearch-min-*.tar.gz /output/
+            '
+          ls -la docker/opensearch/opensearch/opensearch-min-*.tar.gz
+
       - name: Build ppc64le images (${{ matrix.profile }})
         run: |
           IMAGES="${{ github.event.inputs.images }}"

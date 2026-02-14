@@ -25,6 +25,10 @@ ADD aci-aim-base-archive /aci-aim-base-source
 ADD aci-aim-base-plugin-apicapi-archive /apicapi-source
 ADD aci-aim-base-plugin-acitoolkit-archive /acitoolkit-source
 
+{% if base_arch == 'ppc64le' %}
+ENV CFLAGS="-Wno-error=incompatible-pointer-types"
+{% endif %}
+
 {# Git archives create subdirectories, need to link to actual packages #}
 RUN ln -s /aci-aim-base-source/* /aci-aim \
     && ln -s /apicapi-source/* /apicapi \

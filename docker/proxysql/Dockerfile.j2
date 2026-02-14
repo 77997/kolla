@@ -1,19 +1,15 @@
 {% if base_arch == 'ppc64le' %}
 FROM {{ base_image }}:{{ base_distro_tag }} AS proxysql-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential debhelper pkg-config cmake g++ gcc git \
+    build-essential pkg-config cmake g++ gcc git \
     libssl-dev libgnutls28-dev default-libmysqlclient-dev \
-    uuid-dev libncurses-dev libicu-dev libevent-dev devscripts \
-    ca-certificates automake bzip2
+    uuid-dev libncurses-dev libicu-dev libevent-dev \
+    ca-certificates automake bzip2 python3
 WORKDIR /build
 RUN git clone --depth 1 --branch v2.7.1 \
     https://github.com/sysown/proxysql.git
 WORKDIR /build/proxysql
-RUN git clone --depth 1 \
-    https://github.com/percona/proxysql-packaging.git /tmp/pkg \
-    && cp -r /tmp/pkg/debian . \
-    && sed -i 's/Architecture: amd64/Architecture: any/' debian/control
-RUN dpkg-buildpackage -us -uc -b
+RUN make -j$(nproc)
 {% endif %}
 
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
@@ -37,8 +33,8 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.configure_user(name='proxysql') }}
 {{ macros.install_packages(proxysql_packages | customizable("packages")) }}
 
-COPY --from=proxysql-builder /build/proxysql_*.deb /tmp/
-RUN dpkg -i /tmp/proxysql_*.deb && rm -f /tmp/proxysql_*.deb
+COPY --from=proxysql-builder /build/proxysql/src/proxysql /usr/bin/proxysql
+RUN chmod 755 /usr/bin/proxysql
 
 {% else %}
 

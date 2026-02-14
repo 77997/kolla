@@ -59,7 +59,7 @@ COPY apt_preferences_rabbitmq.{{ base_distro }} /etc/apt/preferences.d/rabbitmq
         'rabbitmq-server',
      ] %}
     {% if base_arch == 'ppc64le' %}
-        {% set kolla_toolbox_packages = kolla_toolbox_packages + ['rustc', 'cargo'] %}
+        {% set kolla_toolbox_packages = kolla_toolbox_packages + ['rustc', 'cargo', 'pkg-config'] %}
     {% endif %}
 {% endif %}
 {{ macros.install_packages(kolla_toolbox_packages | customizable("packages")) }}

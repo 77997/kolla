@@ -19,6 +19,10 @@ ADD plugins-archive /
 
 COPY extend_start.sh /usr/local/bin/kolla_neutron_extend_start
 
+{% if base_arch == 'ppc64le' %}
+ENV CFLAGS="-Wno-error=incompatible-pointer-types"
+{% endif %}
+
 RUN {{ macros.install_pip(neutron_server_pip_packages | customizable("pip_packages")) }} \
     && if [ "$(ls /plugins)" ]; then \
            {{ macros.install_pip(neutron_server_plugins_pip_packages) }}; \
