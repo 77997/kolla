@@ -8,9 +8,18 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% import "macros.j2" as macros with context %}
 
 {% block prometheus_mtail_install %}
+{% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
+{# Use Debian package for ppc64el - no upstream binary available #}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends mtail \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/mtail /opt/mtail
+{% else %}
 ADD prometheus-mtail-archive /prometheus-mtail-source
 
 RUN cp /prometheus-mtail-source/* /opt/
+{% endif %}
 {% endblock %}
 
 {{ macros.kolla_patch_sources() }}

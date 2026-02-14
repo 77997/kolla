@@ -25,9 +25,22 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.install_packages(letsencrypt_lego_packages | customizable("packages")) }}
 
 {% block letsencrypt_lego_install %}
+{% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
+{# Build from source for ppc64el - no upstream binary available #}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends golang git ca-certificates \
+    && git clone --depth 1 --branch v4.21.0 https://github.com/go-acme/lego.git /tmp/lego \
+    && cd /tmp/lego \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /opt/lego ./cmd/lego \
+    && apt-get remove -y golang git \
+    && apt-get autoremove -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/lego /root/go
+{% else %}
 ADD letsencrypt-lego-archive /lego-source
 
 RUN cp -r /lego-source/lego /opt/
+{% endif %}
 {% endblock %}
 
 COPY letsencrypt-certificates.sh /usr/bin/letsencrypt-certificates

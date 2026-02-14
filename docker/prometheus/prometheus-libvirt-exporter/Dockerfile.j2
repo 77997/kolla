@@ -10,11 +10,19 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.install_packages(prometheus_libvirt_exporter_packages | customizable("packages")) }}
 
 {% block prometheus_libvirt_exporter_install %}
+{% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
+{# Use Debian package for ppc64el - no upstream binary available #}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends prometheus-libvirt-exporter \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/prometheus-libvirt-exporter /opt/libvirt-exporter
+{% else %}
 ADD prometheus-libvirt-exporter-archive /prometheus-libvirt-exporter-source
 
 RUN ln -s /prometheus-libvirt-exporter-source/* prometheus-libvirt-exporter \
     && cp /prometheus-libvirt-exporter/prometheus-libvirt-exporter /opt/libvirt-exporter
-
+{% endif %}
 {% endblock %}
 
 {{ macros.kolla_patch_sources() }}

@@ -1,0 +1,34 @@
+{# OpFlex is only supported on amd64 - C++ agent for compute nodes #}
+{# For non-amd64 architectures, see kolla/image/unbuildable.py #}
+
+FROM {{ namespace }}/{{ image_prefix }}opflex-base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+# This image inherits from opflex-base image, which is also a leaf image,
+# and therefore sets the user to opflex. Set the user to root, so that any
+# headers or footers used have the right context.
+USER root
+
+{% block opflex_agent_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{% block opflex_agent_install %}
+ADD neutron-opflex-agent-archive /neutron-opflex-agent-source
+
+{# Git archives create a subdirectory, need to link to actual package #}
+RUN ln -s /neutron-opflex-agent-source/* /neutron-opflex-agent \
+    && {{ macros.install_pip(['/neutron-opflex-agent']) }}
+{% endblock %}
+
+COPY extend_start.sh /usr/local/bin/kolla_extend_start
+RUN chmod 755 /usr/local/bin/kolla_extend_start
+
+{{ macros.kolla_patch_sources() }}
+
+{% block opflex_agent_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER opflex

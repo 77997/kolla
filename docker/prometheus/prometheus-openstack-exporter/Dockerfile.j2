@@ -1,3 +1,14 @@
+{% if base_arch == 'ppc64le' %}
+# Build stage for ppc64le - build from source
+# openstack-exporter v1.7.0 requires Go 1.19+
+FROM golang:1.25-trixie AS builder
+
+ARG OPENSTACK_EXPORTER_VERSION=v1.7.0
+RUN git clone --depth 1 --branch ${OPENSTACK_EXPORTER_VERSION} https://github.com/openstack-exporter/openstack-exporter.git /go/src/github.com/openstack-exporter/openstack-exporter
+WORKDIR /go/src/github.com/openstack-exporter/openstack-exporter
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /openstack-exporter .
+
+{% endif %}
 FROM {{ namespace }}/{{ image_prefix }}prometheus-base:{{ tag }}
 {% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
@@ -8,10 +19,15 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% import "macros.j2" as macros with context %}
 
 {% block prometheus_openstack_exporter_install %}
+{% if base_arch == 'ppc64le' %}
+RUN mkdir /opt/openstack-exporter
+COPY --from=builder /openstack-exporter /opt/openstack-exporter/
+{% else %}
 ADD prometheus-openstack-exporter-archive /prometheus-openstack-exporter-source
 
 RUN mkdir /opt/openstack-exporter \
     && cp /prometheus-openstack-exporter-source/openstack-exporter /opt/openstack-exporter/
+{% endif %}
 {% endblock %}
 
 {{ macros.kolla_patch_sources() }}

@@ -80,7 +80,12 @@ class WorkerThread(threading.Thread):
                     except Exception:
                         LOG.exception('Unhandled error when running %s',
                                       task.name)
-                    # try again...
+                    # try again with exponential backoff
+                    if attempt < self.conf.retries:
+                        sleep_time = min(2 ** (attempt + 1), 60)
+                        LOG.info("Waiting %s seconds before retry...",
+                                 sleep_time)
+                        time.sleep(sleep_time)
                     task.reset()
                 if task.success and not self.should_stop:
                     for next_task in task.followups:

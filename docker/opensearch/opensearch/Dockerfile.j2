@@ -1,3 +1,16 @@
+{% if base_arch == 'ppc64le' %}
+FROM {{ base_image }}:{{ base_distro_tag }} AS opensearch-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-21-jdk-headless git ca-certificates curl
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-ppc64el
+WORKDIR /build
+RUN git clone --depth 1 --branch 2.18.0 \
+    https://github.com/opensearch-project/OpenSearch.git
+WORKDIR /build/OpenSearch
+RUN ./gradlew :distribution:archives:no-jdk-linux-ppc64le-tar:assemble \
+    -Dbuild.snapshot=false
+{% endif %}
+
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
 {% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
@@ -8,6 +21,26 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% import "macros.j2" as macros with context %}
 
 {{ macros.configure_user(name='opensearch', shell='/bin/bash', homedir='/usr/share/opensearch') }}
+
+{% if base_arch == 'ppc64le' %}
+
+{% set opensearch_packages = [
+    'openjdk-21-jre-headless'
+] %}
+
+ENV OPENSEARCH_INITIAL_ADMIN_PASSWORD="Kolla24OpenSearch"
+
+{{ macros.install_packages(opensearch_packages | customizable("packages")) }}
+
+COPY --from=opensearch-builder /build/OpenSearch/distribution/archives/no-jdk-linux-ppc64le-tar/build/distributions/opensearch-min-*.tar.gz /tmp/
+RUN tar -xzf /tmp/opensearch-min-*.tar.gz -C /usr/share \
+    && mv /usr/share/opensearch-* /usr/share/opensearch \
+    && mkdir -p /etc/opensearch \
+    && chown -R opensearch:opensearch /usr/share/opensearch \
+    && chown -R opensearch:opensearch /etc/opensearch
+
+{% else %}
+
 {{ macros.enable_extra_repos(['opensearch']) }}
 
     {% set opensearch_packages = [
@@ -20,6 +53,8 @@ ENV OPENSEARCH_INITIAL_ADMIN_PASSWORD="Kolla24OpenSearch"
     && chown -R opensearch:opensearch /usr/share/opensearch \
     && rm -f /etc/opensearch/*.pem \
     && rm -f /etc/opensearch/securityadmin_demo.sh
+
+{% endif %}
 
 COPY extend_start.sh /usr/local/bin/kolla_extend_start
 RUN chmod 755 /usr/local/bin/kolla_extend_start

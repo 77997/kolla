@@ -58,6 +58,9 @@ COPY apt_preferences_rabbitmq.{{ base_distro }} /etc/apt/preferences.d/rabbitmq
         'python3-venv',
         'rabbitmq-server',
      ] %}
+    {% if base_arch == 'ppc64le' %}
+        {% set kolla_toolbox_packages = kolla_toolbox_packages + ['rustc', 'cargo'] %}
+    {% endif %}
 {% endif %}
 {{ macros.install_packages(kolla_toolbox_packages | customizable("packages")) }}
 

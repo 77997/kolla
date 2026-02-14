@@ -8,12 +8,23 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% import "macros.j2" as macros with context %}
 
 {% block prometheus_server_install %}
+{% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
+{# Use Debian package for ppc64el - no upstream binary available #}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends prometheus \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/prometheus /etc/prometheus /data \
+    && ln -s /usr/bin/prometheus /opt/prometheus/prometheus \
+    && ln -s /usr/bin/promtool /opt/prometheus/promtool
+{% else %}
 ADD prometheus-server-archive /prometheus-server-source
 
 RUN ln -s /prometheus-server-source/* prometheus-server \
     && mkdir -p /opt/prometheus \
     && cp -r /prometheus-server/* /opt/prometheus/ \
     && mkdir -p /etc/prometheus /data
+{% endif %}
 {% endblock %}
 
 {{ macros.kolla_patch_sources() }}

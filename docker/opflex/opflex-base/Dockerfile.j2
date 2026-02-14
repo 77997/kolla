@@ -1,0 +1,120 @@
+{# OpFlex is only supported on amd64 - C++ agent for compute nodes #}
+{# For non-amd64 architectures, see kolla/image/unbuildable.py #}
+
+# Stage 1: Builder - compile OpFlex components from source
+FROM debian:trixie AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+# Note: libopenvswitch-dev doesn't exist in Trixie, so we build OVS from source
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    cmake \
+    git \
+    ca-certificates \
+    libboost-all-dev \
+    libuv1-dev \
+    rapidjson-dev \
+    libssl-dev \
+    default-jdk \
+    maven \
+    doxygen \
+    python3 \
+    libunbound-dev \
+    libcap-ng-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build Open vSwitch from source to get headers
+WORKDIR /build
+ARG OVS_VERSION=3.5.0
+RUN git clone --depth 1 --branch v${OVS_VERSION} https://github.com/openvswitch/ovs.git /build/ovs
+WORKDIR /build/ovs
+RUN ./boot.sh \
+    && ./configure --prefix=/usr/local \
+    && make -j$(nproc) \
+    && make install
+
+# Clone opflex
+RUN git clone --depth 1 https://github.com/noironetworks/opflex.git /build/opflex
+
+# Build libopflex
+WORKDIR /build/opflex/libopflex
+RUN ./autogen.sh \
+    && ./configure --prefix=/usr/local \
+    && make -j$(nproc) \
+    && make install
+
+# Build genie (model generator) - requires Java/Maven
+WORKDIR /build/opflex/genie
+RUN mvn package -DskipTests \
+    && mkdir -p /usr/local/share \
+    && cp target/genie-*.jar /usr/local/share/genie.jar
+
+# Generate and build libmodelgbp
+WORKDIR /build/opflex/genie
+RUN java -jar /usr/local/share/genie.jar -o /build/modelgbp \
+    -mvn /build/opflex/genie/MODEL/APIC-GBP/APIC-GBP-MIM.yang
+
+WORKDIR /build/modelgbp
+RUN ./autogen.sh \
+    && ./configure --prefix=/usr/local \
+    && make -j$(nproc) \
+    && make install
+
+# Build agent-ovs
+WORKDIR /build/opflex/agent-ovs
+RUN ./autogen.sh \
+    && ./configure --prefix=/usr/local \
+    && make -j$(nproc) \
+    && make install
+
+# Stage 2: Runtime image
+FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+{% block opflex_base_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{{ macros.configure_user(name='opflex') }}
+
+{% if base_package_type == 'deb' %}
+    {% set opflex_base_packages = [
+        'libboost-system1.83.0',
+        'libboost-filesystem1.83.0',
+        'libboost-program-options1.83.0',
+        'libboost-iostreams1.83.0',
+        'libuv1',
+        'libssl3',
+        'openvswitch-switch'
+    ] %}
+{% endif %}
+
+{{ macros.install_packages(opflex_base_packages | customizable("packages")) }}
+
+{% block opflex_base_install %}
+# Copy compiled binaries and libraries from builder
+COPY --from=builder /usr/local/lib/libopflex* /usr/local/lib/
+COPY --from=builder /usr/local/lib/libmodelgbp* /usr/local/lib/
+COPY --from=builder /usr/local/bin/opflex_agent /usr/local/bin/
+COPY --from=builder /usr/local/bin/gbp_inspect /usr/local/bin/
+COPY --from=builder /usr/local/share/opflex /usr/local/share/opflex/
+
+RUN ldconfig \
+    && mkdir -p /etc/opflex-agent /var/lib/opflex-agent /var/log/opflex-agent \
+    && chown -R opflex:opflex /etc/opflex-agent /var/lib/opflex-agent /var/log/opflex-agent
+{% endblock %}
+
+{{ macros.kolla_patch_sources() }}
+
+{% block opflex_base_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER opflex

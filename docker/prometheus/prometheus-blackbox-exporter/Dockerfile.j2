@@ -20,12 +20,23 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.install_packages(blackbox_packages | customizable("packages")) }}
 
 {% block prometheus_blackbox_exporter_install %}
+{% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
+{# Use Debian package for ppc64el - no upstream binary available #}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends prometheus-blackbox-exporter \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/blackbox_exporter/ \
+    && ln -s /usr/bin/prometheus-blackbox-exporter /opt/blackbox_exporter/blackbox_exporter \
+    && setcap cap_net_raw+ep /opt/blackbox_exporter/blackbox_exporter
+{% else %}
 ADD prometheus-blackbox-exporter-archive /prometheus-blackbox-exporter-source
 
 RUN ln -s /prometheus-blackbox-exporter-source/* prometheus-blackbox-exporter \
     && mkdir -p /opt/blackbox_exporter/ \
     && cp /prometheus-blackbox-exporter/blackbox_exporter /opt/blackbox_exporter/ \
     && setcap cap_net_raw+ep /opt/blackbox_exporter/blackbox_exporter
+{% endif %}
 {% endblock %}
 
 {{ macros.kolla_patch_sources() }}

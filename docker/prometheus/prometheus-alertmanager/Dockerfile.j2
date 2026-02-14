@@ -8,9 +8,20 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {% import "macros.j2" as macros with context %}
 
 {% block prometheus_alertmanager_install %}
+{% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
+{# Use Debian package for ppc64el - no upstream binary available #}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends prometheus-alertmanager \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/prometheus_alertmanager \
+    && ln -s /usr/bin/alertmanager /opt/prometheus_alertmanager/alertmanager \
+    && ln -s /usr/bin/amtool /opt/prometheus_alertmanager/amtool
+{% else %}
 ADD prometheus-alertmanager-archive /prometheus-alertmanager-source
 RUN cp -r /prometheus-alertmanager-source/* /opt/ \
     && ln -s /opt/alertmanager* /opt/prometheus_alertmanager
+{% endif %}
 {% endblock %}
 
 {{ macros.kolla_patch_sources() }}

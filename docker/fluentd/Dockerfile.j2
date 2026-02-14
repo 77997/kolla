@@ -10,7 +10,9 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% import "macros.j2" as macros with context %}
 
+{% if base_arch != 'ppc64le' %}
 {{ macros.enable_extra_repos(['fluentd']) }}
+{% endif %}
 
 {% if base_package_type == 'rpm' %}
 
@@ -22,11 +24,20 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% elif base_package_type == 'deb' %}
 
-    {% set fluentd_packages = [
-        'g++',
-        'make',
-        'fluent-package',
-    ] %}
+    {% if base_arch == 'ppc64le' %}
+        {% set fluentd_packages = [
+            'g++',
+            'make',
+            'ruby',
+            'ruby-dev',
+        ] %}
+    {% else %}
+        {% set fluentd_packages = [
+            'g++',
+            'make',
+            'fluent-package',
+        ] %}
+    {% endif %}
 
 {% endif %}
 
@@ -41,6 +52,11 @@ COPY extend_start.sh /usr/local/bin/kolla_extend_start
     && mkdir -p /var/run/{{ fluentd_user }} \
     && chown -R {{ fluentd_user }}: /var/run/{{ fluentd_user }} \
     && chmod 644 /usr/local/bin/kolla_extend_start
+
+{% if base_arch == 'ppc64le' %}
+RUN gem install fluentd --no-document \
+    && ln -sf /usr/bin/gem /usr/sbin/fluent-gem
+{% endif %}
 
 {% block fluentd_plugins_install %}
 

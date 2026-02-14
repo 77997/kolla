@@ -19,6 +19,17 @@ UNBUILDABLE_IMAGES = {
         "bifrost-base",        # someone need to get upstream working first
     },
 
+    'ppc64le': {
+        "bifrost-base",              # no ppc64le support
+        "opflex-base",               # C++ agent, amd64 only by design
+        "opflex-agent",              # C++ agent, amd64 only by design
+        "opensearch-dashboards",     # Dart SDK has no ppc64le support (only x64,
+                                     # arm64, arm32, riscv64). OpenSearch Dashboards
+                                     # build requires sass-embedded which is a native
+                                     # Dart binary. See dart.dev/get-dart and
+                                     # opensearch-project/OpenSearch-Dashboards#1018.
+    },
+
     # Issues for SHA1 keys:
     # https://github.com/grafana/grafana/issues/41036
     'centos': {
