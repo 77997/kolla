@@ -26,16 +26,11 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% block letsencrypt_lego_install %}
 {% if base_arch == 'ppc64le' and base_package_type == 'deb' %}
-{# Build from source for ppc64el - no upstream binary available #}
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends golang git ca-certificates \
-    && git clone --depth 1 --branch v4.21.0 https://github.com/go-acme/lego.git /tmp/lego \
-    && cd /tmp/lego \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /opt/lego ./cmd/lego \
-    && apt-get remove -y golang git \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/lego /root/go
+{# Binary is pre-built outside Docker by CI (native amd64 Go cross-compilation).
+   CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le produces a static ppc64le binary.
+   The binary must exist in the build context (written by CI pre-build step). #}
+COPY lego /opt/lego
+RUN chmod 755 /opt/lego
 {% else %}
 ADD letsencrypt-lego-archive /lego-source
 

@@ -1,17 +1,3 @@
-{% if base_arch == 'ppc64le' %}
-FROM {{ base_image }}:{{ base_distro_tag }} AS proxysql-builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential pkg-config cmake g++ gcc git \
-    libssl-dev libgnutls28-dev default-libmysqlclient-dev \
-    uuid-dev libncurses-dev libicu-dev libevent-dev \
-    ca-certificates automake bzip2 python3
-WORKDIR /build
-RUN git clone --depth 1 --branch v2.7.1 \
-    https://github.com/sysown/proxysql.git
-WORKDIR /build/proxysql
-RUN make -j$(nproc)
-{% endif %}
-
 FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
 {% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
@@ -33,7 +19,9 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 {{ macros.configure_user(name='proxysql') }}
 {{ macros.install_packages(proxysql_packages | customizable("packages")) }}
 
-COPY --from=proxysql-builder /build/proxysql/src/proxysql /usr/bin/proxysql
+{# Binary is pre-built outside Docker by CI (QEMU, cached by version).
+   This avoids rebuilding ProxySQL from C++ source on every kolla-build run. #}
+COPY proxysql /usr/bin/proxysql
 RUN chmod 755 /usr/bin/proxysql
 
 {% else %}

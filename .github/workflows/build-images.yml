@@ -79,6 +79,7 @@ jobs:
           BUILD_ARGS="--base debian --base-arch x86_64 --tag ${{ env.OPENSTACK_RELEASE }}-amd64"
           BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
           BUILD_ARGS="$BUILD_ARGS --push --threads 4"
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
           
           if [ -n "$IMAGES" ]; then
             BUILD_ARGS="$BUILD_ARGS --regex $IMAGES"
@@ -87,6 +88,15 @@ jobs:
           fi
           
           python -m kolla.cmd.build $BUILD_ARGS
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.profile }}-amd64
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
 
   build-ppc64le:
     runs-on: ubuntu-latest
@@ -160,6 +170,58 @@ jobs:
             '
           ls -la docker/opensearch/opensearch/opensearch-min-*.tar.gz
 
+      - name: Pre-build Go binaries for ppc64le
+        if: matrix.profile == 'infra'
+        run: |
+          # letsencrypt-lego: cross-compile natively on amd64 runner
+          docker run --rm \
+            -v "${{ github.workspace }}/docker/letsencrypt/letsencrypt-lego:/output" \
+            golang:1.25-trixie \
+            bash -c '
+              set -ex
+              git clone --depth 1 --branch v4.27.0 \
+                https://github.com/go-acme/lego.git /build/lego
+              cd /build/lego
+              CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /output/lego ./cmd/lego
+            '
+          ls -la docker/letsencrypt/letsencrypt-lego/lego
+
+      - name: Cache ProxySQL ppc64le binary
+        if: matrix.profile == 'infra' || matrix.profile == 'default'
+        uses: actions/cache@v4
+        with:
+          path: docker/proxysql/proxysql
+          key: proxysql-ppc64le-v2.7.1
+
+      - name: Pre-build ProxySQL for ppc64le
+        if: matrix.profile == 'infra' || matrix.profile == 'default'
+        run: |
+          BINARY_PATH="${{ github.workspace }}/docker/proxysql/proxysql"
+          if [ -f "$BINARY_PATH" ]; then
+            echo "Using cached ProxySQL binary"
+            file "$BINARY_PATH"
+            exit 0
+          fi
+          # Build using QEMU emulation (slow first run, cached afterward)
+          # Uses debian:trixie to match base_image:base_distro_tag (config.py line 29)
+          docker run --rm --platform linux/ppc64le \
+            -v "${{ github.workspace }}/docker/proxysql:/output" \
+            debian:trixie \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends \
+                build-essential pkg-config cmake g++ gcc git \
+                libssl-dev libgnutls28-dev default-libmysqlclient-dev \
+                uuid-dev libncurses-dev libicu-dev libevent-dev \
+                ca-certificates automake bzip2 python3
+              git clone --depth 1 --branch v2.7.1 \
+                https://github.com/sysown/proxysql.git /build/proxysql
+              cd /build/proxysql
+              make -j$(nproc)
+              cp src/proxysql /output/proxysql
+            '
+          ls -la "$BINARY_PATH"
+
       - name: Build ppc64le images (${{ matrix.profile }})
         run: |
           IMAGES="${{ github.event.inputs.images }}"
@@ -168,6 +230,7 @@ jobs:
           BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
           BUILD_ARGS="$BUILD_ARGS --push --threads 4"
           BUILD_ARGS="$BUILD_ARGS --platform linux/ppc64le"
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
           
           if [ -n "$IMAGES" ]; then
             BUILD_ARGS="$BUILD_ARGS --regex $IMAGES"
@@ -177,17 +240,24 @@ jobs:
           
           python -m kolla.cmd.build $BUILD_ARGS
 
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.profile }}-ppc64le
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
   create-manifests:
     needs: [build-amd64, build-ppc64le]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -195,42 +265,69 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download build summaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          path: summaries
+
       - name: Create multi-arch manifests
         run: |
-          # List all images that were pushed to the registry
-          # Query the registry for available tags
-          
-          echo "Fetching image list from registry..."
-          
-          # Get list of packages from GitHub Container Registry API
-          PACKAGES=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/orgs/77997/packages?package_type=container&per_page=100" \
-            | jq -r '.[].name' | grep "^kolla/" | sed 's|^kolla/||' || echo "")
-          
-          if [ -z "$PACKAGES" ]; then
-            echo "No packages found or API call failed. Trying alternative method..."
-            # Alternative: use skopeo to list tags if available
-            PACKAGES=$(skopeo list-tags docker://${{ env.REGISTRY }}/${{ env.NAMESPACE }}/base 2>/dev/null | jq -r '.Tags[]' | grep -oP '^[^:]+' | sort -u || echo "")
+          set -euo pipefail
+
+          # Collect image names that built successfully on EACH architecture.
+          # jq processes multiple JSON files, outputting names from each.
+          AMD64_IMAGES=$(jq -r '.built[]?.name' summaries/summary-*-amd64/summary.json 2>/dev/null | sort -u || echo "")
+          PPC64LE_IMAGES=$(jq -r '.built[]?.name' summaries/summary-*-ppc64le/summary.json 2>/dev/null | sort -u || echo "")
+
+          if [ -z "$AMD64_IMAGES" ] || [ -z "$PPC64LE_IMAGES" ]; then
+            echo "WARNING: Missing images for one or both architectures"
+            echo "  amd64 images: $(echo "$AMD64_IMAGES" | wc -w)"
+            echo "  ppc64le images: $(echo "$PPC64LE_IMAGES" | wc -w)"
+            if [ -z "$AMD64_IMAGES" ] && [ -z "$PPC64LE_IMAGES" ]; then
+              echo "ERROR: No images found for either architecture"
+              exit 1
+            fi
           fi
-          
-          # Fallback: use a predefined list of common images
-          if [ -z "$PACKAGES" ]; then
-            echo "Using predefined image list..."
-            PACKAGES="base openstack-base keystone glance nova-api nova-compute neutron-server horizon heat-api cinder-api placement-api mariadb-server rabbitmq memcached etcd haproxy keepalived fluentd kolla-toolbox cron"
+
+          # Intersect: only create manifests for images built on BOTH arches
+          COMMON_IMAGES=$(comm -12 <(echo "$AMD64_IMAGES") <(echo "$PPC64LE_IMAGES"))
+
+          if [ -z "$COMMON_IMAGES" ]; then
+            echo "WARNING: No common images found across architectures"
+            exit 0
           fi
-          
-          for IMAGE_NAME in $PACKAGES; do
-            echo "Creating manifest for $IMAGE_NAME..."
-            
-            # Create manifest list combining amd64 and ppc64le
-            docker manifest create \
-              ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }} \
-              ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-amd64 \
-              ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-ppc64le \
-              --amend 2>/dev/null || echo "  Skipped $IMAGE_NAME (missing one or both arch tags)"
-            
-            # Push manifest if created successfully
-            docker manifest push ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }} 2>/dev/null || true
+
+          TOTAL=$(echo "$COMMON_IMAGES" | wc -l)
+          echo "Creating manifests for $TOTAL images..."
+
+          CREATED=0
+          FAILED=0
+          for IMAGE_NAME in $COMMON_IMAGES; do
+            FULL_AMD64="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-amd64"
+            FULL_PPC64LE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-ppc64le"
+            FULL_MANIFEST="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}"
+
+            echo "[$((CREATED + FAILED + 1))/$TOTAL] $IMAGE_NAME"
+
+            # Remove any stale local manifest from a previous run
+            docker manifest rm "$FULL_MANIFEST" 2>/dev/null || true
+
+            if docker manifest create "$FULL_MANIFEST" "$FULL_AMD64" "$FULL_PPC64LE"; then
+              if docker manifest push "$FULL_MANIFEST"; then
+                CREATED=$((CREATED + 1))
+              else
+                echo "  ERROR: Failed to push manifest for $IMAGE_NAME"
+                FAILED=$((FAILED + 1))
+              fi
+            else
+              echo "  ERROR: Failed to create manifest for $IMAGE_NAME"
+              FAILED=$((FAILED + 1))
+            fi
           done
-          
-          echo "Manifest creation complete."
+
+          echo ""
+          echo "Summary: $CREATED created, $FAILED failed out of $TOTAL"
+          if [ "$FAILED" -gt 0 ]; then
+            exit 1
+          fi

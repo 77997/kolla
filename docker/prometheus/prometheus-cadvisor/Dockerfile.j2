@@ -1,14 +1,3 @@
-{% if base_arch == 'ppc64le' %}
-# Build stage for ppc64le - build from source
-# cadvisor v0.53.0 requires Go 1.23+
-FROM golang:1.25-trixie AS builder
-
-ARG CADVISOR_VERSION=v0.53.0
-RUN git clone --depth 1 --branch ${CADVISOR_VERSION} https://github.com/google/cadvisor.git /go/src/github.com/google/cadvisor
-WORKDIR /go/src/github.com/google/cadvisor
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /cadvisor ./cmd/cadvisor
-
-{% endif %}
 FROM {{ namespace }}/{{ image_prefix }}prometheus-base:{{ tag }}
 {% block labels %}
 LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
@@ -20,7 +9,9 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% block prometheus_cadvisor_install %}
 {% if base_arch == 'ppc64le' %}
-COPY --from=builder /cadvisor /opt/cadvisor
+{# Binary is pre-built outside Docker by CI (native amd64 Go cross-compilation).
+   The binary must exist in the build context (written by CI pre-build step). #}
+COPY cadvisor /opt/cadvisor
 RUN chmod 0755 /opt/cadvisor
 {% else %}
 ADD prometheus-cadvisor-archive /prometheus-cadvisor-source
