@@ -1,0 +1,29 @@
+FROM {{ namespace }}/{{ image_prefix }}neutron-server:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+# This image inherits from neutron-server image, which is also a leaf image,
+# and therefore sets the user to neutron. Set the user to root, so that any
+# headers or footers used have the right context.
+USER root
+
+{% block neutron_server_plugin_networking_aci_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{% block neutron_server_plugin_networking_aci_install %}
+ADD neutron-server-plugin-networking-aci-archive /networking-aci-source
+
+{# Install the ACI Integration Module (provides ML2 mechanism driver) #}
+{# Git archives create a subdirectory, need to link to the actual package #}
+RUN ln -s /networking-aci-source/* /networking-aci \
+    && {{ macros.install_pip(['/networking-aci']) }}
+{% endblock %}
+
+{{ macros.kolla_patch_sources() }}
+
+{% block neutron_server_plugin_networking_aci_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER neutron

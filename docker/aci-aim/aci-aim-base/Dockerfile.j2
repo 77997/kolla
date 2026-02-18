@@ -1,0 +1,53 @@
+FROM {{ namespace }}/{{ image_prefix }}openstack-base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+{% block aci_aim_base_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{{ macros.configure_user(name='aim') }}
+
+{% if base_package_type == 'deb' %}
+    {% set aci_aim_base_packages = [
+        'python3-click',
+        'python3-tabulate',
+        'python3-alembic',
+        'python3-oslo.messaging'
+    ] %}
+{% endif %}
+
+{{ macros.install_packages(aci_aim_base_packages | customizable("packages")) }}
+
+{% block aci_aim_base_install %}
+ADD aci-aim-base-archive /aci-aim-base-source
+ADD aci-aim-base-plugin-apicapi-archive /apicapi-source
+ADD aci-aim-base-plugin-acitoolkit-archive /acitoolkit-source
+
+{% if base_arch == 'ppc64le' %}
+ENV CFLAGS="-Wno-error=incompatible-pointer-types"
+{% endif %}
+
+{# Git archives create subdirectories, need to link to actual packages #}
+RUN ln -s /aci-aim-base-source/* /aci-aim \
+    && ln -s /apicapi-source/* /apicapi \
+    && ln -s /acitoolkit-source/* /acitoolkit \
+    && {{ macros.install_pip(['pip']) }} \
+    && {{ macros.install_pip(['/apicapi']) }} \
+    && {{ macros.install_pip(['/acitoolkit']) }} \
+    && {{ macros.install_pip(['/aci-aim']) }} \
+    && mkdir -p /etc/aim /var/lib/aim /var/log/aim \
+    && chown -R aim:aim /etc/aim /var/lib/aim /var/log/aim
+{% endblock %}
+
+COPY extend_start.sh /usr/local/bin/kolla_extend_start
+
+RUN chmod 755 /usr/local/bin/kolla_extend_start
+
+{{ macros.kolla_patch_sources() }}
+
+{% block aci_aim_base_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER aim

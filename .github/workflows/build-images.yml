@@ -1,0 +1,417 @@
+name: Build Kolla Images
+
+on:
+  push:
+    branches:
+      - master
+      - 'stable/*'
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Specific images to build (comma-separated, empty for all)'
+        required: false
+        default: ''
+      profile:
+        description: 'Kolla profile to build (ignored when using matrix)'
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: 77997/kolla
+  OPENSTACK_RELEASE: '2025.2'
+  BASE_DISTRO: debian
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: infra
+          - profile: main
+          - profile: aux
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+          tool-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build amd64 images (${{ matrix.profile }})
+        run: |
+          IMAGES="${{ github.event.inputs.images }}"
+          
+          BUILD_ARGS="--base debian --base-arch x86_64 --tag ${{ env.OPENSTACK_RELEASE }}-amd64"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 4"
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+          
+          REGEX="${{ matrix.regex }}"
+          if [ -n "$IMAGES" ]; then
+            REGEX_ARGS="$IMAGES"
+          elif [ -n "$REGEX" ]; then
+            REGEX_ARGS="$REGEX"
+          else
+            BUILD_ARGS="$BUILD_ARGS --profile ${{ matrix.profile }}"
+            REGEX_ARGS=""
+          fi
+          
+          python -m kolla.cmd.build $BUILD_ARGS $REGEX_ARGS
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.profile }}-amd64
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  build-ppc64le:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: infra
+          - profile: main
+          - profile: aux-1
+            regex: "aodh|blazar|cloudkitty|designate|gnocchi"
+          - profile: aux-2
+            regex: "influxdb|ironic|kafka|kuryr|magnum"
+          - profile: aux-3
+            regex: "manila|masakari|mistral|octavia|tacker"
+          - profile: aux-4
+            regex: "telegraf|trove|zookeeper|zun"
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+          tool-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/ppc64le
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ppc64le images (${{ matrix.profile }})
+        run: |
+          IMAGES="${{ github.event.inputs.images }}"
+          
+          BUILD_ARGS="--base debian --base-arch ppc64le --tag ${{ env.OPENSTACK_RELEASE }}-ppc64le"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 2"
+          BUILD_ARGS="$BUILD_ARGS --platform linux/ppc64le"
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+          
+          REGEX="${{ matrix.regex }}"
+          if [ -n "$IMAGES" ]; then
+            REGEX_ARGS="$IMAGES"
+          elif [ -n "$REGEX" ]; then
+            REGEX_ARGS="$REGEX"
+          else
+            BUILD_ARGS="$BUILD_ARGS --profile ${{ matrix.profile }}"
+            REGEX_ARGS=""
+          fi
+          
+          python -m kolla.cmd.build $BUILD_ARGS $REGEX_ARGS
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.profile }}-ppc64le
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  build-amd64-opflex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+          tool-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download OpFlex amd64 binaries
+        run: |
+          curl -fSL "https://77997.github.io/kolla/ppc64le/tarballs/opflex-binaries-amd64.tar.gz" \
+            -o docker/opflex/opflex-agent/opflex-binaries.tar.gz
+
+      - name: Build opflex-agent amd64 image
+        run: |
+          BUILD_ARGS="--base debian --base-arch x86_64 --tag ${{ env.OPENSTACK_RELEASE }}-amd64"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 4"
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS opflex
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-opflex-amd64
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  build-ppc64le-opflex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+          tool-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/ppc64le
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download OpFlex ppc64le binaries
+        run: |
+          curl -fSL "https://77997.github.io/kolla/ppc64le/tarballs/opflex-binaries-ppc64le.tar.gz" \
+            -o docker/opflex/opflex-agent/opflex-binaries.tar.gz
+
+      - name: Build opflex-agent ppc64le image
+        run: |
+          BUILD_ARGS="--base debian --base-arch ppc64le --tag ${{ env.OPENSTACK_RELEASE }}-ppc64le"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 2"
+          BUILD_ARGS="$BUILD_ARGS --platform linux/ppc64le"
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS opflex
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-opflex-ppc64le
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  create-manifests:
+    needs: [build-amd64, build-ppc64le, build-amd64-opflex, build-ppc64le-opflex]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download build summaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          path: summaries
+
+      - name: Create multi-arch manifests
+        run: |
+          set -euo pipefail
+
+          # Collect image names that built successfully on EACH architecture.
+          # jq processes multiple JSON files, outputting names from each.
+          AMD64_IMAGES=$(jq -r '.built[]?.name' summaries/summary-*-amd64/summary.json 2>/dev/null | sort -u || echo "")
+          PPC64LE_IMAGES=$(jq -r '.built[]?.name' summaries/summary-*-ppc64le/summary.json 2>/dev/null | sort -u || echo "")
+
+          if [ -z "$AMD64_IMAGES" ] || [ -z "$PPC64LE_IMAGES" ]; then
+            echo "WARNING: Missing images for one or both architectures"
+            echo "  amd64 images: $(echo "$AMD64_IMAGES" | wc -w)"
+            echo "  ppc64le images: $(echo "$PPC64LE_IMAGES" | wc -w)"
+            if [ -z "$AMD64_IMAGES" ] && [ -z "$PPC64LE_IMAGES" ]; then
+              echo "ERROR: No images found for either architecture"
+              exit 1
+            fi
+          fi
+
+          # Intersect: only create manifests for images built on BOTH arches
+          COMMON_IMAGES=$(comm -12 <(echo "$AMD64_IMAGES") <(echo "$PPC64LE_IMAGES"))
+
+          if [ -z "$COMMON_IMAGES" ]; then
+            echo "WARNING: No common images found across architectures"
+            exit 0
+          fi
+
+          TOTAL=$(echo "$COMMON_IMAGES" | wc -l)
+          echo "Creating manifests for $TOTAL images..."
+
+          CREATED=0
+          FAILED=0
+          for IMAGE_NAME in $COMMON_IMAGES; do
+            FULL_AMD64="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-amd64"
+            FULL_PPC64LE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-ppc64le"
+            FULL_MANIFEST="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}"
+
+            echo "[$((CREATED + FAILED + 1))/$TOTAL] $IMAGE_NAME"
+
+            # Remove any stale local manifest from a previous run
+            docker manifest rm "$FULL_MANIFEST" 2>/dev/null || true
+
+            if docker manifest create "$FULL_MANIFEST" "$FULL_AMD64" "$FULL_PPC64LE"; then
+              if docker manifest push "$FULL_MANIFEST"; then
+                CREATED=$((CREATED + 1))
+              else
+                echo "  ERROR: Failed to push manifest for $IMAGE_NAME"
+                FAILED=$((FAILED + 1))
+              fi
+            else
+              echo "  ERROR: Failed to create manifest for $IMAGE_NAME"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          echo ""
+          echo "Summary: $CREATED created, $FAILED failed out of $TOTAL"
+          if [ "$FAILED" -gt 0 ]; then
+            exit 1
+          fi

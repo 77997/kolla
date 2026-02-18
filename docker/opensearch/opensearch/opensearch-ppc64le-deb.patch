@@ -1,0 +1,36 @@
+--- a/distribution/packages/build.gradle
++++ b/distribution/packages/build.gradle
+@@ -115,9 +115,10 @@
+     if (type == 'deb') {
+       if (architecture == 'x64') {
+         arch('amd64')
+-      } else {
+-        assert architecture == 'arm64' : architecture
++      } else if (architecture == 'arm64') {
+         arch('arm64')
++      } else if (architecture == 'ppc64le') {
++        arch('ppc64el')
+       }
+     } else {
+       assert type == 'rpm' : type
+@@ -131,7 +133,8 @@
+     }
+     // Follow opensearch's file naming convention
+     String jdkString = jdk ? "" : "-no-jdk"
+-    String prefix = "${architecture == 'arm64' ? 'arm64-' : ''}${jdk ? '' : 'no-jdk-'}${type}"
++    String archPrefix = (architecture == 'arm64') ? 'arm64-' : ((architecture == 'ppc64le') ? 'ppc64le-' : '')
++    String prefix = "${archPrefix}${jdk ? '' : 'no-jdk-'}${type}"
+     destinationDirectory = file("${prefix}/build/distributions")
+ 
+     // SystemPackagingTask overrides default archive task convention mappings, but doesn't provide a setter so we have to override the convention mapping itself
+@@ -381,6 +384,10 @@
+   configure(commonDebConfig(false, 'arm64'))
+ }
+ 
++tasks.register('buildNoJdkPpc64leDeb', Deb) {
++  configure(commonDebConfig(false, 'ppc64le'))
++}
++
+ tasks.register('buildDeb', Deb) {
+   configure(commonDebConfig(true, 'x64'))
+ }

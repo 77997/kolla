@@ -1,0 +1,693 @@
+name: Publish ppc64le Dependencies
+
+on:
+  workflow_dispatch:
+    inputs:
+      proxysql_version:
+        description: 'ProxySQL version'
+        default: 'v2.7.1'
+      grpcio_version:
+        description: 'grpcio version'
+        default: '1.74.0'
+      cryptography_version:
+        description: 'cryptography version'
+        default: '43.0.3'
+      bcrypt_version:
+        description: 'bcrypt version'
+        default: '4.0.1'
+      opflex_version:
+        description: 'OpFlex version'
+        default: '6.1.1.6'
+      ovs_version:
+        description: 'OVS version (for OpFlex)'
+        default: '3.5.0'
+      opensearch_version:
+        description: 'OpenSearch version'
+        default: '2.18.0'
+      lego_version:
+        description: 'lego version'
+        default: 'v4.27.0'
+      cadvisor_version:
+        description: 'cadvisor version'
+        default: 'v0.53.0'
+      openstack_exporter_version:
+        description: 'openstack-exporter version'
+        default: 'v1.7.0'
+      mtail_version:
+        description: 'mtail version'
+        default: 'v3.0.8'
+      libvirt_exporter_version:
+        description: 'prometheus-libvirt-exporter version'
+        default: 'v2.2.0'
+      fluent_package_version:
+        description: 'fluent-package-builder tag'
+        default: 'v6.0.1'
+      pillow_version:
+        description: 'Pillow version'
+        default: '11.3.0'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-proxysql:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache ProxySQL deb
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: proxysql-deb
+          key: proxysql-ppc64le-${{ inputs.proxysql_version }}-deb
+
+      - name: Set up QEMU
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/ppc64le
+
+      - name: Build ProxySQL for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p proxysql-deb
+          docker run --rm --platform linux/ppc64le \
+            -v "${{ github.workspace }}/proxysql-deb:/output" \
+            debian:trixie \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends \
+                build-essential pkg-config cmake g++ gcc git \
+                libssl-dev libgnutls28-dev default-libmysqlclient-dev \
+                uuid-dev libncurses-dev libicu-dev libevent-dev \
+                ca-certificates automake autoconf libtool bzip2 python3 \
+                equivs dpkg-dev
+
+              VERSION="${{ inputs.proxysql_version }}"
+              VERSION="${VERSION#v}"
+
+              git clone --depth 1 --branch ${{ inputs.proxysql_version }} \
+                https://github.com/sysown/proxysql.git /build/proxysql
+              cd /build/proxysql
+              sed -i "/targets += coredumper/d" deps/Makefile
+              sed -i "/IDIRS.*COREDUMPER/d" lib/Makefile
+              sed -i "/LDIRS.*COREDUMPER/d" src/Makefile
+              sed -i "/lcoredumper/d" src/Makefile
+              make -j$(nproc)
+
+              # Package as .deb using equivs
+              mkdir -p /build/pkg/usr/bin
+              cp src/proxysql /build/pkg/usr/bin/proxysql
+              chmod 755 /build/pkg/usr/bin/proxysql
+
+              {
+                echo "Section: database"
+                echo "Priority: optional"
+                echo "Standards-Version: 4.6.2"
+                echo "Package: proxysql"
+                echo "Version: ${VERSION}-1"
+                echo "Maintainer: Kolla ppc64le <kolla-ppc64le@noreply.github.com>"
+                echo "Architecture: ppc64el"
+                echo "Depends: libgnutls30t64, libmariadb3, libunwind8"
+                echo "Description: ProxySQL for ppc64le"
+                echo " Pre-built ProxySQL binary packaged for Kolla ppc64le builds."
+              } > /build/pkg/proxysql.ctl
+
+              cd /build/pkg
+              equivs-build proxysql.ctl
+              cp proxysql_*.deb /output/
+            '
+          ls -la proxysql-deb/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxysql-deb
+          path: proxysql-deb/*.deb
+          retention-days: 5
+
+  build-grpcio:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache grpcio wheel
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: grpcio-wheel
+          key: grpcio-ppc64le-${{ inputs.grpcio_version }}-cp313
+
+      - name: Cross-compile grpcio for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p grpcio-wheel
+          docker run --rm \
+            -v "${{ github.workspace }}/grpcio-wheel:/output" \
+            debian:trixie \
+            bash -c '
+              set -ex
+              dpkg --add-architecture ppc64el
+              apt-get update && apt-get install -y --no-install-recommends \
+                python3-dev python3-pip python3-venv build-essential \
+                crossbuild-essential-ppc64el \
+                libpython3.13-dev:ppc64el
+
+              pip download --no-binary :all: --no-deps grpcio==${{ inputs.grpcio_version }}
+              tar xzf grpcio-*.tar.gz
+              cd grpcio-*/
+
+              sed -i "/#elif defined(__myriad2__)/{N;s/#define OPENSSL_32_BIT/#define OPENSSL_32_BIT\n#elif defined(__PPC64__)\n#define OPENSSL_64_BIT\n#elif defined(__PPC__)\n#define OPENSSL_32_BIT/}" \
+                third_party/boringssl-with-bazel/src/include/openssl/target.h
+
+              CC=powerpc64le-linux-gnu-gcc \
+              CXX=powerpc64le-linux-gnu-g++ \
+              _PYTHON_HOST_PLATFORM=linux-ppc64le \
+              pip wheel --no-cache-dir --no-deps \
+                --wheel-dir=/output .
+            '
+          ls -la grpcio-wheel/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grpcio-wheel
+          path: grpcio-wheel/*.whl
+          retention-days: 5
+
+  build-python-wheels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache Python wheels
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: python-wheels
+          key: python-wheels-ppc64le-crypto${{ inputs.cryptography_version }}-bcrypt${{ inputs.bcrypt_version }}-cp313
+
+      - name: Set up QEMU
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/ppc64le
+
+      - name: Build cryptography and bcrypt wheels for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p python-wheels
+          docker run --rm --platform linux/ppc64le \
+            -v "${{ github.workspace }}/python-wheels:/output" \
+            debian:trixie \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends \
+                python3-dev python3-pip python3-venv build-essential \
+                rustc cargo libssl-dev libffi-dev pkg-config
+              pip wheel --no-cache-dir --no-deps \
+                --wheel-dir=/output \
+                cryptography==${{ inputs.cryptography_version }} \
+                bcrypt==${{ inputs.bcrypt_version }}
+            '
+          ls -la python-wheels/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels
+          path: python-wheels/*.whl
+          retention-days: 5
+
+  build-pillow-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache Pillow wheel
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: pillow-wheel
+          key: pillow-ppc64le-${{ inputs.pillow_version }}-cp313-manylinux_2_28
+
+      - name: Set up QEMU
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/ppc64le
+
+      - name: Build Pillow manylinux wheel for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p pillow-wheel
+          docker run --rm --platform linux/ppc64le \
+            -v "${{ github.workspace }}/pillow-wheel:/output" \
+            quay.io/pypa/manylinux_2_28_ppc64le \
+            bash -c '
+              set -ex
+              yum install -y libjpeg-turbo-devel zlib-devel \
+                libtiff-devel freetype-devel lcms2-devel libwebp-devel
+              PYTHON=/opt/python/cp313-cp313/bin/python3
+              $PYTHON -m pip wheel --no-cache-dir --no-deps \
+                --wheel-dir=/tmp/wheels \
+                pillow==${{ inputs.pillow_version }}
+              auditwheel repair /tmp/wheels/pillow*.whl \
+                --plat manylinux_2_28_ppc64le \
+                --wheel-dir=/output
+            '
+          ls -la pillow-wheel/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pillow-wheel
+          path: pillow-wheel/*.whl
+          retention-days: 5
+
+  build-go-binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache Go binaries
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: go-binaries
+          key: go-bins-ppc64le-lego-${{ inputs.lego_version }}-cadvisor-${{ inputs.cadvisor_version }}-osexp-${{ inputs.openstack_exporter_version }}-mtail-${{ inputs.mtail_version }}-libvirtexp-${{ inputs.libvirt_exporter_version }}
+
+      - name: Cross-compile Go binaries for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p go-binaries
+          docker run --rm \
+            -v "${{ github.workspace }}/go-binaries:/output" \
+            golang:1.25-trixie \
+            bash -c '
+              set -ex
+
+              # lego
+              git clone --depth 1 --branch ${{ inputs.lego_version }} \
+                https://github.com/go-acme/lego.git /build/lego
+              cd /build/lego
+              CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /tmp/lego ./cmd/lego
+              cd /output && tar czf lego_${{ inputs.lego_version }}_linux_ppc64le.tar.gz -C /tmp lego
+
+              # cadvisor
+              git clone --depth 1 --branch ${{ inputs.cadvisor_version }} \
+                https://github.com/google/cadvisor.git /build/cadvisor
+              cd /build/cadvisor/cmd
+              CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /output/cadvisor-${{ inputs.cadvisor_version }}-linux-ppc64le .
+
+              # openstack-exporter
+              OSEXP_VERSION="${{ inputs.openstack_exporter_version }}"
+              OSEXP_VERSION_BARE="${OSEXP_VERSION#v}"
+              git clone --depth 1 --branch ${OSEXP_VERSION} \
+                https://github.com/openstack-exporter/openstack-exporter.git /build/openstack-exporter
+              cd /build/openstack-exporter
+              CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /tmp/openstack-exporter .
+              cd /output && tar czf openstack-exporter_${OSEXP_VERSION_BARE}_linux_ppc64le.tar.gz -C /tmp openstack-exporter
+
+              # mtail
+              MTAIL_VERSION="${{ inputs.mtail_version }}"
+              MTAIL_VERSION_BARE="${MTAIL_VERSION#v}"
+              git clone --depth 1 --branch ${MTAIL_VERSION} \
+                https://github.com/google/mtail.git /build/mtail
+              cd /build/mtail
+              CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /tmp/mtail ./cmd/mtail
+              cd /output && tar czf mtail_${MTAIL_VERSION_BARE}_linux_ppc64le.tar.gz -C /tmp mtail
+
+              # prometheus-libvirt-exporter
+              LIBVIRT_VERSION="${{ inputs.libvirt_exporter_version }}"
+              LIBVIRT_VERSION_BARE="${LIBVIRT_VERSION#v}"
+              git clone --depth 1 --branch ${LIBVIRT_VERSION} \
+                https://github.com/inovex/prometheus-libvirt-exporter.git /build/libvirt-exporter
+              cd /build/libvirt-exporter
+              DIRNAME="prometheus-libvirt-exporter-${LIBVIRT_VERSION_BARE}.linux-ppc64le"
+              mkdir -p /tmp/${DIRNAME}
+              CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /tmp/${DIRNAME}/prometheus-libvirt-exporter .
+              cd /tmp && tar czf /output/${DIRNAME}.tar.gz ${DIRNAME}
+            '
+          ls -la go-binaries/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-binaries
+          path: go-binaries/
+          retention-days: 5
+
+  build-opflex:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, ppc64le]
+    steps:
+      - name: Cache OpFlex binaries
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: opflex-binaries
+          key: opflex-${{ matrix.arch }}-${{ inputs.opflex_version }}-ovs${{ inputs.ovs_version }}
+
+      - name: Build OpFlex for ${{ matrix.arch }}
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p opflex-binaries
+          docker run --rm \
+            -v "${{ github.workspace }}/opflex-binaries:/output" \
+            debian:trixie \
+            bash -c '
+              set -ex
+              OVS_VERSION=${{ inputs.ovs_version }}
+              ARCH=${{ matrix.arch }}
+
+              if [ "${ARCH}" = "ppc64le" ]; then
+                dpkg --add-architecture ppc64el
+                apt-get update && apt-get install -y --no-install-recommends \
+                  build-essential crossbuild-essential-ppc64el \
+                  autoconf automake libtool pkg-config cmake git ca-certificates \
+                  default-jdk maven python3 \
+                  libboost-dev libboost-system-dev libboost-filesystem-dev \
+                  libboost-program-options-dev libboost-iostreams-dev \
+                  libboost-test-dev libboost-date-time-dev \
+                  libuv1-dev rapidjson-dev libssl-dev zlib1g-dev \
+                  libunbound-dev libcap-ng-dev \
+                  libboost-dev:ppc64el libboost-system-dev:ppc64el \
+                  libboost-filesystem-dev:ppc64el libboost-program-options-dev:ppc64el \
+                  libboost-iostreams-dev:ppc64el libboost-test-dev:ppc64el \
+                  libboost-date-time-dev:ppc64el \
+                  libuv1-dev:ppc64el libssl-dev:ppc64el zlib1g-dev:ppc64el \
+                  libunbound-dev:ppc64el libcap-ng-dev:ppc64el
+                CC=powerpc64le-linux-gnu-gcc
+                CXX=powerpc64le-linux-gnu-g++
+                HOST_FLAG="--host=powerpc64le-linux-gnu"
+                CMAKE_EXTRA="-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=ppc64le"
+                MULTIARCH_LIBDIR="/usr/lib/powerpc64le-linux-gnu"
+              else
+                apt-get update && apt-get install -y --no-install-recommends \
+                  build-essential \
+                  autoconf automake libtool pkg-config cmake git ca-certificates \
+                  default-jdk maven python3 \
+                  libboost-dev libboost-system-dev libboost-filesystem-dev \
+                  libboost-program-options-dev libboost-iostreams-dev \
+                  libboost-test-dev libboost-date-time-dev \
+                  libuv1-dev rapidjson-dev libssl-dev zlib1g-dev \
+                  libunbound-dev libcap-ng-dev
+                CC=gcc
+                CXX=g++
+                HOST_FLAG=""
+                CMAKE_EXTRA=""
+                MULTIARCH_LIBDIR=""
+              fi
+
+              git clone --depth 1 --branch v${OVS_VERSION} \
+                https://github.com/openvswitch/ovs.git /build/ovs
+              git clone --depth 1 --branch ${{ inputs.opflex_version }} \
+                https://github.com/noironetworks/opflex.git /build/opflex
+              git clone --depth 1 \
+                https://github.com/noironetworks/3rdparty-debian.git /build/3rdparty-debian
+              git clone --depth 1 -b v1.0.1 \
+                https://github.com/jupp0r/prometheus-cpp.git /build/prometheus-cpp
+              cd /build/prometheus-cpp && git submodule init && git submodule update
+              git apply /build/3rdparty-debian/prometheus/prometheus-cpp.patch
+
+              find /build/opflex/agent-ovs -name "*.cpp" -o -name "*.h" | \
+                xargs sed -i "s/OFPCR12_ROLE_MASTER/OFPCR12_ROLE_PRIMARY/g; s/OFPCR12_ROLE_SLAVE/OFPCR12_ROLE_SECONDARY/g"
+
+              cd /build/ovs && ./boot.sh
+              cd /build/opflex/libopflex && ./autogen.sh
+              cd /build/opflex/agent-ovs && ./autogen.sh
+              cd /build/opflex/genie && mvn compile exec:java
+              cd /build/opflex/genie/target/libmodelgbp && bash autogen.sh
+
+              STAGE=/build/staging
+              mkdir -p ${STAGE}
+
+              cd /build/ovs
+              ./configure --prefix=/usr/local --with-pic ${HOST_FLAG} CC=${CC} CXX=${CXX}
+              make -j$(nproc)
+              make DESTDIR=${STAGE} install
+              ln -sfn /build/ovs/lib /build/ovs/include/openvswitch/lib
+              rm -f /build/ovs/lib/string.h /build/ovs/lib/stdio.h
+
+              cd /build/opflex/libopflex
+              PKG_CONFIG_PATH="${STAGE}/usr/local/lib/pkgconfig" \
+              LDFLAGS="-L${STAGE}/usr/local/lib" \
+              CPPFLAGS="-I${STAGE}/usr/local/include" \
+              ./configure --prefix=/usr/local ${HOST_FLAG} ${MULTIARCH_LIBDIR:+--with-boost-libdir=${MULTIARCH_LIBDIR}} CC=${CC} CXX=${CXX}
+              make -j$(nproc)
+              make DESTDIR=${STAGE} install
+
+              cd /build/opflex/genie/target/libmodelgbp
+              PKG_CONFIG_PATH="${STAGE}/usr/local/lib/pkgconfig" \
+              LDFLAGS="-L${STAGE}/usr/local/lib" \
+              CPPFLAGS="-I${STAGE}/usr/local/include" \
+              ./configure --prefix=/usr/local --disable-static ${HOST_FLAG} ${MULTIARCH_LIBDIR:+--with-boost-libdir=${MULTIARCH_LIBDIR}} CC=${CC} CXX=${CXX}
+              make -j$(nproc)
+              make DESTDIR=${STAGE} install
+
+              cd /build/prometheus-cpp
+              mkdir _build && cd _build
+              cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local \
+                -DCMAKE_C_COMPILER=${CC} -DCMAKE_CXX_COMPILER=${CXX} \
+                ${CMAKE_EXTRA} -DBUILD_SHARED_LIBS=ON -DENABLE_PUSH=OFF
+              make -j$(nproc)
+              make DESTDIR=${STAGE} install
+
+              sed -i "s|/usr/local/lib|${STAGE}/usr/local/lib|g" ${STAGE}/usr/local/lib/*.la
+
+              cd /build/opflex/agent-ovs
+              PKG_CONFIG_PATH="${STAGE}/usr/local/lib/pkgconfig" \
+              LDFLAGS="-L${STAGE}/usr/local/lib" \
+              CPPFLAGS="-isystem /build/ovs/include -isystem /build/ovs/lib -isystem /build/ovs/include/openvswitch -I${STAGE}/usr/local/include" \
+              CXXFLAGS="-g -O2 -Wno-error=dangling-reference" \
+              LIBS="-lopenvswitch" \
+              ./configure --prefix=/usr/local ${HOST_FLAG} ${MULTIARCH_LIBDIR:+--with-boost-libdir=${MULTIARCH_LIBDIR}} CC=${CC} CXX=${CXX}
+              make -j$(nproc)
+              make DESTDIR=${STAGE} install
+
+              find ${STAGE}/usr/local/lib -name "*.a" -delete
+              find ${STAGE}/usr/local/lib -name "*.la" -delete
+              rm -rf ${STAGE}/usr/local/include ${STAGE}/usr/local/share \
+                ${STAGE}/usr/local/lib/pkgconfig
+              rm -f ${STAGE}/usr/local/bin/ovs-* ${STAGE}/usr/local/bin/ovsdb-*
+              rm -rf ${STAGE}/usr/local/sbin ${STAGE}/usr/local/var \
+                ${STAGE}/usr/local/etc
+
+              cd ${STAGE}
+              tar czf /output/opflex-binaries-${ARCH}.tar.gz usr/local
+            '
+          ls -la opflex-binaries/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opflex-binaries-${{ matrix.arch }}
+          path: opflex-binaries/*.tar.gz
+          retention-days: 5
+
+  build-fluent-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache fluent-package deb
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: fluent-package-deb
+          key: fluent-package-ppc64le-${{ inputs.fluent_package_version }}-deb
+
+      - name: Set up QEMU
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/ppc64le
+
+      - uses: ruby/setup-ruby@v1
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          ruby-version: '3.4'
+
+      - name: Build fluent-package for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/ppc64le
+        run: |
+          git clone --depth 1 --branch ${{ inputs.fluent_package_version }} \
+            https://github.com/fluent/fluent-package-builder.git
+          cd fluent-package-builder
+          mkdir -p fluent-package/apt/debian-trixie-ppc64le
+          echo "debian:trixie" > fluent-package/apt/debian-trixie-ppc64le/from
+          rake apt:build APT_TARGETS="debian-trixie-ppc64le"
+          mkdir -p ${{ github.workspace }}/fluent-package-deb
+          find fluent-package/apt/repositories -name "fluent-package*.deb" \
+            -exec cp {} ${{ github.workspace }}/fluent-package-deb/ \;
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluent-package-deb
+          path: fluent-package-deb/*.deb
+          retention-days: 5
+
+  build-opensearch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kolla (for patch file)
+        uses: actions/checkout@v4
+
+      - name: Cache OpenSearch deb
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: opensearch-deb
+          key: opensearch-ppc64le-${{ inputs.opensearch_version }}-deb
+
+      - name: Build OpenSearch ppc64le deb
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p opensearch-deb
+          docker run --rm \
+            -v "${{ github.workspace }}/opensearch-deb:/output" \
+            -v "${{ github.workspace }}/docker/opensearch/opensearch/opensearch-ppc64le-deb.patch:/patch/opensearch-ppc64le-deb.patch" \
+            eclipse-temurin:21-jdk \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+              git clone --depth 1 --branch ${{ inputs.opensearch_version }} \
+                https://github.com/opensearch-project/OpenSearch.git /build/OpenSearch
+              cd /build/OpenSearch
+              git apply /patch/opensearch-ppc64le-deb.patch
+              ./gradlew :distribution:packages:buildNoJdkPpc64leDeb \
+                -Dbuild.snapshot=false
+              find distribution/packages -name "opensearch-min*.deb" \
+                -exec cp {} /output/ \;
+            '
+          ls -la opensearch-deb/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensearch-deb
+          path: opensearch-deb/*.deb
+          retention-days: 5
+
+  publish:
+    needs: [build-proxysql, build-grpcio, build-python-wheels, build-pillow-wheel, build-go-binaries, build-opflex, build-fluent-package, build-opensearch]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build Pages directory
+        run: |
+          set -ex
+          SITE=site
+          mkdir -p $SITE/ppc64le/apt $SITE/ppc64le/simple $SITE/ppc64le/tarballs
+
+          cp docker/base/kolla-ppc64le-repo-key.asc $SITE/ppc64le/repo-key.asc
+
+          # --- apt repo ---
+          cp artifacts/proxysql-deb/*.deb $SITE/ppc64le/apt/
+          cp artifacts/fluent-package-deb/*.deb $SITE/ppc64le/apt/
+          cp artifacts/opensearch-deb/*.deb $SITE/ppc64le/apt/
+          cd $SITE/ppc64le/apt
+          dpkg-scanpackages . /dev/null > Packages
+          gzip -k Packages
+          apt-ftparchive release . > Release
+          cd ${{ github.workspace }}
+
+          # GPG sign
+          echo "${{ secrets.PPC64LE_REPO_GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          gpg --batch --yes --clearsign -o $SITE/ppc64le/apt/InRelease $SITE/ppc64le/apt/Release
+
+          # --- pip index ---
+          generate_pip_index() {
+            local pkg_name=$1
+            local pkg_dir=$SITE/ppc64le/simple/$pkg_name
+            mkdir -p "$pkg_dir"
+            local index="$pkg_dir/index.html"
+            echo "<!DOCTYPE html><html><body>" > "$index"
+            for whl in "$pkg_dir"/*.whl; do
+              [ -f "$whl" ] || continue
+              local fname=$(basename "$whl")
+              local sha=$(sha256sum "$whl" | cut -d' ' -f1)
+              echo "<a href=\"${fname}#sha256=${sha}\">${fname}</a><br/>" >> "$index"
+            done
+            echo "</body></html>" >> "$index"
+          }
+
+          # grpcio
+          cp artifacts/grpcio-wheel/*.whl $SITE/ppc64le/simple/grpcio/ 2>/dev/null || mkdir -p $SITE/ppc64le/simple/grpcio
+          cp artifacts/grpcio-wheel/*.whl $SITE/ppc64le/simple/grpcio/ 2>/dev/null || true
+          generate_pip_index grpcio
+
+          # cryptography + bcrypt
+          for pkg in cryptography bcrypt; do
+            mkdir -p $SITE/ppc64le/simple/$pkg
+          done
+          for whl in artifacts/python-wheels/*.whl; do
+            [ -f "$whl" ] || continue
+            fname=$(basename "$whl")
+            pkg_name=$(echo "$fname" | cut -d'-' -f1 | tr '[:upper:]' '[:lower:]')
+            cp "$whl" "$SITE/ppc64le/simple/$pkg_name/"
+          done
+          generate_pip_index cryptography
+          generate_pip_index bcrypt
+
+          # pillow
+          mkdir -p $SITE/ppc64le/simple/pillow
+          cp artifacts/pillow-wheel/*.whl $SITE/ppc64le/simple/pillow/
+          generate_pip_index pillow
+
+          # Root index
+          echo '<!DOCTYPE html><html><body>' > $SITE/ppc64le/simple/index.html
+          for d in $SITE/ppc64le/simple/*/; do
+            name=$(basename "$d")
+            echo "<a href=\"${name}/\">${name}</a><br/>" >> $SITE/ppc64le/simple/index.html
+          done
+          echo '</body></html>' >> $SITE/ppc64le/simple/index.html
+
+          # --- tarballs ---
+          cp artifacts/opflex-binaries-*/*.tar.gz $SITE/ppc64le/tarballs/
+          cp artifacts/go-binaries/* $SITE/ppc64le/tarballs/
+
+          echo "=== Pages site contents ==="
+          find $SITE -type f | sort
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="ppc64le-deps/$(date +%Y%m%d)-${GITHUB_RUN_NUMBER}"
+          BODY="ProxySQL ${{ inputs.proxysql_version }}, grpcio ${{ inputs.grpcio_version }}, "
+          BODY+="cryptography ${{ inputs.cryptography_version }}, bcrypt ${{ inputs.bcrypt_version }}, "
+          BODY+="OpFlex ${{ inputs.opflex_version }} (OVS ${{ inputs.ovs_version }}), "
+          BODY+="OpenSearch ${{ inputs.opensearch_version }}, lego ${{ inputs.lego_version }}, "
+          BODY+="cadvisor ${{ inputs.cadvisor_version }}, openstack-exporter ${{ inputs.openstack_exporter_version }}, "
+          BODY+="fluent-package ${{ inputs.fluent_package_version }}, "
+          BODY+="mtail ${{ inputs.mtail_version }}, libvirt-exporter ${{ inputs.libvirt_exporter_version }}, "
+          BODY+="pillow ${{ inputs.pillow_version }}"
+
+          gh release create "$TAG" \
+            --title "ppc64le deps $(date +%Y-%m-%d)" \
+            --notes "$BODY" \
+            artifacts/proxysql-deb/*.deb \
+            artifacts/fluent-package-deb/*.deb \
+            artifacts/opensearch-deb/*.deb \
+            artifacts/grpcio-wheel/*.whl \
+            artifacts/python-wheels/*.whl \
+            artifacts/go-binaries/* \
+            artifacts/opflex-binaries-*/*.tar.gz
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
