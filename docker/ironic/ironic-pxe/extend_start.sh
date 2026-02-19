@@ -15,26 +15,30 @@ function prepare_pxe_pxelinux {
     fi
 }
 
-# For UEFI boot mode
+# For UEFI boot mode -- copy boot files for all available target architectures
 function prepare_pxe_grub {
-    if [[ "${KOLLA_BASE_DISTRO}" =~ debian|ubuntu  ]]; then
-        shim_src_file="/usr/lib/shim/shim*64.efi.signed"
-        grub_src_file="/usr/lib/grub/*-efi-signed/grubnet*64.efi.signed"
+    if [[ "${KOLLA_BASE_DISTRO}" =~ debian|ubuntu ]]; then
+        # Copy x86_64 UEFI boot files if available
+        if [[ -f /usr/lib/shim/shimx64.efi.signed ]]; then
+            cp /usr/lib/shim/shimx64.efi.signed ${TFTPBOOT_PATH}/bootx64.efi
+            cp /usr/lib/grub/x86_64-efi-signed/grubnetx64.efi.signed ${TFTPBOOT_PATH}/grubx64.efi
+        fi
+        # Copy aarch64 UEFI boot files if available
+        if [[ -f /usr/lib/shim/shimaa64.efi.signed ]]; then
+            cp /usr/lib/shim/shimaa64.efi.signed ${TFTPBOOT_PATH}/bootaa64.efi
+            cp /usr/lib/grub/arm64-efi-signed/grubnetaa64.efi.signed ${TFTPBOOT_PATH}/grubaa64.efi
+        fi
     elif [[ "${KOLLA_BASE_DISTRO}" =~ centos|rocky ]]; then
-        shim_src_file="/boot/efi/EFI/${KOLLA_BASE_DISTRO}/shim*64.efi"
-        grub_src_file="/boot/efi/EFI/${KOLLA_BASE_DISTRO}/grub*64.efi"
+        # RPM: both x64 and aa64 packages are installed
+        if [[ -f /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimx64.efi ]]; then
+            cp /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimx64.efi ${TFTPBOOT_PATH}/bootx64.efi
+            cp /boot/efi/EFI/${KOLLA_BASE_DISTRO}/grubx64.efi ${TFTPBOOT_PATH}/grubx64.efi
+        fi
+        if [[ -f /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimaa64.efi ]]; then
+            cp /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimaa64.efi ${TFTPBOOT_PATH}/bootaa64.efi
+            cp /boot/efi/EFI/${KOLLA_BASE_DISTRO}/grubaa64.efi ${TFTPBOOT_PATH}/grubaa64.efi
+        fi
     fi
-
-    if [[ "${KOLLA_BASE_ARCH}" == "x86_64" ]]; then
-        shim_dst_file="bootx64.efi"
-        grub_dst_file="grubx64.efi"
-    elif [[ "${KOLLA_BASE_ARCH}" == "aarch64" ]]; then
-        shim_dst_file="bootaa64.efi"
-        grub_dst_file="grubaa64.efi"
-    fi
-
-    cp $shim_src_file ${TFTPBOOT_PATH}/$shim_dst_file
-    cp $grub_src_file ${TFTPBOOT_PATH}/$grub_dst_file
 }
 
 function prepare_ipxe {
@@ -62,28 +66,33 @@ function prepare_esp_image {
     # NOTE(bbezak): based on https://docs.openstack.org/ironic/2024.2/install/configure-esp.html
     # ESP image needs to be provided for UEFI boot with virtual media:
     # https://docs.openstack.org/ironic/2024.2/admin/drivers/redfish.html#virtual-media-boot
-    if [[ "${KOLLA_BASE_DISTRO}" =~ debian|ubuntu ]]; then
-        shim_src_file="/usr/lib/shim/shim*64.efi.signed"
-        grub_src_file="/usr/lib/grub/*-efi-signed/grubnet*64.efi.signed"
-    elif [[ "${KOLLA_BASE_DISTRO}" =~ centos|rocky ]]; then
-        shim_src_file="/boot/efi/EFI/${KOLLA_BASE_DISTRO}/shim*64.efi"
-        grub_src_file="/boot/efi/EFI/${KOLLA_BASE_DISTRO}/grub*64.efi"
-    fi
-
-    if [[ "${KOLLA_BASE_ARCH}" == "x86_64" ]]; then
-        shim_dst_file="bootx64.efi"
-        grub_dst_file="grubx64.efi"
-    elif [[ "${KOLLA_BASE_ARCH}" == "aarch64" ]]; then
-        shim_dst_file="bootaa64.efi"
-        grub_dst_file="grubaa64.efi"
-    fi
-
+    # UEFI uses distinct filenames per arch (BOOTx64.EFI vs BOOTAA64.EFI),
+    # so a single FAT image can hold boot files for all target architectures.
     DEST=${HTTPBOOT_PATH}/esp.img
     dd if=/dev/zero of=$DEST bs=4096 count=2048
     mkfs.msdos -F 12 -n ESP_IMAGE $DEST
     mmd -i $DEST EFI EFI/BOOT
-    mcopy -i $DEST -v $shim_src_file ::EFI/BOOT/$shim_dst_file
-    mcopy -i $DEST -v $grub_src_file ::EFI/BOOT/$grub_dst_file
+
+    if [[ "${KOLLA_BASE_DISTRO}" =~ debian|ubuntu ]]; then
+        if [[ -f /usr/lib/shim/shimx64.efi.signed ]]; then
+            mcopy -i $DEST -v /usr/lib/shim/shimx64.efi.signed ::EFI/BOOT/bootx64.efi
+            mcopy -i $DEST -v /usr/lib/grub/x86_64-efi-signed/grubnetx64.efi.signed ::EFI/BOOT/grubx64.efi
+        fi
+        if [[ -f /usr/lib/shim/shimaa64.efi.signed ]]; then
+            mcopy -i $DEST -v /usr/lib/shim/shimaa64.efi.signed ::EFI/BOOT/bootaa64.efi
+            mcopy -i $DEST -v /usr/lib/grub/arm64-efi-signed/grubnetaa64.efi.signed ::EFI/BOOT/grubaa64.efi
+        fi
+    elif [[ "${KOLLA_BASE_DISTRO}" =~ centos|rocky ]]; then
+        if [[ -f /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimx64.efi ]]; then
+            mcopy -i $DEST -v /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimx64.efi ::EFI/BOOT/bootx64.efi
+            mcopy -i $DEST -v /boot/efi/EFI/${KOLLA_BASE_DISTRO}/grubx64.efi ::EFI/BOOT/grubx64.efi
+        fi
+        if [[ -f /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimaa64.efi ]]; then
+            mcopy -i $DEST -v /boot/efi/EFI/${KOLLA_BASE_DISTRO}/shimaa64.efi ::EFI/BOOT/bootaa64.efi
+            mcopy -i $DEST -v /boot/efi/EFI/${KOLLA_BASE_DISTRO}/grubaa64.efi ::EFI/BOOT/grubaa64.efi
+        fi
+    fi
+
     mdir -i $DEST ::EFI/BOOT
 }
 
