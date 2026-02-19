@@ -22,18 +22,18 @@ from kolla.version import version_info as version
 
 
 BASE_OS_DISTRO = ['centos', 'debian', 'rocky', 'ubuntu']
-BASE_ARCH = ['x86_64', 'aarch64']
-DEBIAN_ARCH = ['amd64', 'arm64']
+BASE_ARCH = ['x86_64', 'aarch64', 'ppc64le']
+DEBIAN_ARCH = ['amd64', 'arm64', 'ppc64el']
 DEFAULT_BASE_TAGS = {
     'centos': {'name': 'quay.io/centos/centos', 'tag': 'stream10'},
-    'debian': {'name': 'debian', 'tag': 'bookworm'},
+    'debian': {'name': 'debian', 'tag': 'trixie'},
     'rocky': {'name': 'quay.io/rockylinux/rockylinux', 'tag': '10'},
     'ubuntu': {'name': 'ubuntu', 'tag': '24.04'},
 }
 # NOTE(hrw): has to match PRETTY_NAME in /etc/os-release
 DISTRO_PRETTY_NAME = {
     'centos': 'CentOS Stream 10',
-    'debian': 'Debian GNU/Linux 12 (bookworm)',
+    'debian': 'Debian GNU/Linux 13 (trixie)',
     'rocky': 'Rocky Linux 10.* (Red Quartz)',
     'ubuntu': 'Ubuntu 24.04.* LTS',
 }
@@ -99,7 +99,6 @@ _PROFILE_OPTS = [
                     'masakari',
                     'mistral',
                     'octavia',
-                    'redis',
                     'tacker',
                     'telegraf',
                     'trove',
@@ -156,6 +155,10 @@ _CLI_OPTS = [
                choices=DEBIAN_ARCH,
                help='The base architecture used for downloading external '
                'packages. Default is derived from base-arch.'),
+    cfg.StrOpt('go-arch', default='amd64',
+               help='The architecture name used in Go binary download URLs. '
+               'Go projects use ppc64le (not Debian ppc64el). '
+               'Default is derived from base-arch.'),
     cfg.BoolOpt('use-dumb-init', default=True,
                 help='Use dumb-init as init system in containers'),
     cfg.BoolOpt('debug', short='d', default=False,
@@ -303,7 +306,7 @@ _BASE_OPTS = [
 
 
 def get_source_opts(type_=None, location=None, reference=None, enabled=True,
-                    version=None, sha256=None):
+                    version=None, sha256=None, location_override=None):
     return [cfg.StrOpt('type',
                        choices=['local', 'git', 'url'],
                        default=type_,
@@ -326,6 +329,10 @@ def get_source_opts(type_=None, location=None, reference=None, enabled=True,
                         default=sha256,
                         help=('Dictionary of sha256 sums for GitHub '
                               'sources')),
+            cfg.DictOpt('location_override',
+                        default=location_override,
+                        help=('Per-arch location URL overrides keyed '
+                              'by debian_arch')),
             ]
 
 
@@ -356,8 +363,9 @@ def gen_all_source_opts():
         enabled = params.get('enabled', True)
         version = params.get('version')
         sha256 = params.get('sha256')
+        location_override = params.get('location_override')
         yield name, get_source_opts(type_, location, reference, enabled,
-                                    version, sha256)
+                                    version, sha256, location_override)
 
 
 def list_opts():
@@ -395,8 +403,22 @@ def parse(conf, args, usage=None, prog=None,
     conf.set_default('openstack_branch', openstack_branch)
     conf.set_default('openstack_branch_slashed', openstack_branch_slashed)
     # NOTE(bbezak) Derive debian_arch from base_arch if not set explicitly
-    derived_arch = 'arm64' if conf.base_arch == 'aarch64' else 'amd64'
+    if conf.base_arch == 'ppc64le':
+        derived_arch = 'ppc64el'
+    elif conf.base_arch == 'aarch64':
+        derived_arch = 'arm64'
+    else:
+        derived_arch = 'amd64'
     conf.set_default('debian_arch', derived_arch)
+
+    # Go binaries use 'ppc64le' in filenames (not Debian's 'ppc64el')
+    if conf.base_arch == 'ppc64le':
+        derived_go_arch = 'ppc64le'
+    elif conf.base_arch == 'aarch64':
+        derived_go_arch = 'arm64'
+    else:
+        derived_go_arch = 'amd64'
+    conf.set_default('go_arch', derived_go_arch)
 
     if not conf.base_image:
         conf.base_image = DEFAULT_BASE_TAGS[conf.base]['name']

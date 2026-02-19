@@ -1,11 +1,11 @@
 # Default repos
-deb http://deb.debian.org/debian bookworm main
+deb http://deb.debian.org/debian trixie main
 
 # debian security updates
-deb http://deb.debian.org/debian-security bookworm-security main
+deb http://deb.debian.org/debian-security trixie-security main
 
 # debian updates
-deb http://deb.debian.org/debian bookworm-updates main
+deb http://deb.debian.org/debian trixie-updates main
 
 # debian backports
-deb http://deb.debian.org/debian bookworm-backports main
+deb http://deb.debian.org/debian trixie-backports main
