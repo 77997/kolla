@@ -271,6 +271,9 @@ COPY apt_preferences /etc/apt/preferences.d/kolla-custom
             {% endif -%}
         {% endfor %}
     {% endblock %}
+{% if base_arch == 'ppc64le' %}
+COPY kolla-ppc64le-repo-key.asc /etc/kolla/apt-keys/kolla-ppc64le.asc
+{% endif %}
 RUN apt-get --error-on=any update \
     && apt-get -y install locales \
     && sed -e "s/# $LANG UTF-8/$LANG UTF-8/g" /etc/locale.gen -i \
