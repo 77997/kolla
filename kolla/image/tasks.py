@@ -198,6 +198,15 @@ class BuildTask(EngineTask):
             return tarinfo
 
         if source.get('type') == 'url':
+            # Skip download if sha256 dict exists but doesn't include current arch
+            # This indicates no upstream binary exists; Dockerfile handles alternative
+            if source.get('sha256') and self.conf.debian_arch not in source['sha256']:
+                self.logger.info(
+                    "Skipping source download for %s: no binary available for %s "
+                    "(Dockerfile will use alternative path)",
+                    source['name'], self.conf.debian_arch)
+                return
+
             self.logger.debug("Getting archive from %s", source['source'])
             try:
                 r = requests.get(source['source'], timeout=self.conf.timeout)
