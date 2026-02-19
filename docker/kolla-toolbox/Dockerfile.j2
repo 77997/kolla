@@ -63,6 +63,9 @@ COPY apt_preferences_rabbitmq.{{ base_distro }} /etc/apt/preferences.d/rabbitmq
 
 {% block kolla_toolbox_pip_conf %}
 ENV UPPER_CONSTRAINTS_FILE=https://releases.openstack.org/constraints/upper/{{ openstack_release }}
+{% if base_arch == 'ppc64le' %}
+ENV PIP_EXTRA_INDEX_URL=https://77997.github.io/kolla/ppc64le/simple/
+{% endif %}
 {% endblock %}
 
 {% block kolla_toolbox_upper_constraints %}

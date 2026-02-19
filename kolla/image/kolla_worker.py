@@ -669,11 +669,20 @@ class KollaWorker(object):
             else:
                 installation['type'] = self.conf[section]['type']
                 installation['source'] = self.conf[section]['location']
+                location_override = self.conf[section]['location_override']
+                using_override = (location_override and
+                                  self.conf.debian_arch in location_override)
+                if using_override:
+                    installation['source'] = \
+                        location_override[self.conf.debian_arch]
                 installation['name'] = section
                 if installation['type'] == 'git':
                     installation['reference'] = self.conf[section]['reference']
                 installation['enabled'] = self.conf[section]['enabled']
-                installation['sha256'] = self.conf[section]['sha256']
+                if using_override:
+                    installation['sha256'] = None
+                else:
+                    installation['sha256'] = self.conf[section]['sha256']
             return installation
 
         all_sections = (set(self.conf._groups.keys()) |
