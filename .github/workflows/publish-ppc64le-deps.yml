@@ -165,6 +165,7 @@ jobs:
               CC=powerpc64le-linux-gnu-gcc \
               CXX=powerpc64le-linux-gnu-g++ \
               _PYTHON_HOST_PLATFORM=linux-ppc64le \
+              _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__linux_powerpc64le-linux-gnu \
               pip wheel --no-cache-dir --no-deps \
                 --wheel-dir=/output .
             '
@@ -370,6 +371,7 @@ jobs:
               LDFLAGS="-L/tmp/libsodium-ppc64le/lib" \
               CC=powerpc64le-linux-gnu-gcc \
               _PYTHON_HOST_PLATFORM=linux-ppc64le \
+              _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__linux_powerpc64le-linux-gnu \
               /tmp/bv/bin/pip wheel --no-cache-dir --no-deps --no-build-isolation \
                 --wheel-dir=/output .
             '
@@ -457,6 +459,7 @@ jobs:
               CC=powerpc64le-linux-gnu-gcc \
               CFLAGS="-Wno-error=incompatible-pointer-types" \
               _PYTHON_HOST_PLATFORM=linux-ppc64le \
+              _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__linux_powerpc64le-linux-gnu \
               pip wheel --no-cache-dir --no-deps \
                 --wheel-dir=/output .
             '
@@ -562,6 +565,7 @@ jobs:
               CC=powerpc64le-linux-gnu-gcc \
               CXX=powerpc64le-linux-gnu-g++ \
               _PYTHON_HOST_PLATFORM=linux-ppc64le \
+              _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__linux_powerpc64le-linux-gnu \
               pip wheel --no-cache-dir --no-deps \
                 --wheel-dir=/output \
                 ${{ matrix.pip_pkg }}==${{ matrix.version }}

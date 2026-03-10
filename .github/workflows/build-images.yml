@@ -24,6 +24,7 @@ env:
   NAMESPACE: 77997/kolla
   OPENSTACK_RELEASE: '2025.2'
   BASE_DISTRO: debian
+  BASE_DISTRO_VERSION: trixie
 
 jobs:
   build-amd64:
@@ -79,7 +80,8 @@ jobs:
         run: |
           IMAGES="${{ github.event.inputs.images }}"
           
-          BUILD_ARGS="--base debian --base-arch x86_64 --tag ${{ env.OPENSTACK_RELEASE }}-amd64"
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base debian --base-arch x86_64 --tag ${TAG}-amd64"
           BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
           BUILD_ARGS="$BUILD_ARGS --push --threads 4"
           BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
@@ -173,7 +175,8 @@ jobs:
         run: |
           IMAGES="${{ github.event.inputs.images }}"
           
-          BUILD_ARGS="--base debian --base-arch ppc64le --tag ${{ env.OPENSTACK_RELEASE }}-ppc64le"
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base debian --base-arch ppc64le --tag ${TAG}-ppc64le"
           BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
           BUILD_ARGS="$BUILD_ARGS --push --threads 2"
           BUILD_ARGS="$BUILD_ARGS --platform linux/ppc64le"
@@ -249,7 +252,8 @@ jobs:
 
       - name: Build opflex-agent amd64 image
         run: |
-          BUILD_ARGS="--base debian --base-arch x86_64 --tag ${{ env.OPENSTACK_RELEASE }}-amd64"
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base debian --base-arch x86_64 --tag ${TAG}-amd64"
           BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
           BUILD_ARGS="$BUILD_ARGS --push --threads 4"
           BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
@@ -319,7 +323,8 @@ jobs:
 
       - name: Build opflex-agent ppc64le image
         run: |
-          BUILD_ARGS="--base debian --base-arch ppc64le --tag ${{ env.OPENSTACK_RELEASE }}-ppc64le"
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base debian --base-arch ppc64le --tag ${TAG}-ppc64le"
           BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
           BUILD_ARGS="$BUILD_ARGS --push --threads 2"
           BUILD_ARGS="$BUILD_ARGS --platform linux/ppc64le"
@@ -387,12 +392,13 @@ jobs:
           TOTAL=$(echo "$COMMON_IMAGES" | wc -l)
           echo "Creating manifests for $TOTAL images..."
 
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
           CREATED=0
           FAILED=0
           for IMAGE_NAME in $COMMON_IMAGES; do
-            FULL_AMD64="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-amd64"
-            FULL_PPC64LE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}-ppc64le"
-            FULL_MANIFEST="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${{ env.OPENSTACK_RELEASE }}"
+            FULL_AMD64="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${TAG}-amd64"
+            FULL_PPC64LE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${TAG}-ppc64le"
+            FULL_MANIFEST="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${TAG}"
 
             echo "[$((CREATED + FAILED + 1))/$TOTAL] $IMAGE_NAME"
 
