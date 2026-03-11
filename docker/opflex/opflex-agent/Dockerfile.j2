@@ -1,0 +1,46 @@
+FROM {{ namespace }}/{{ image_prefix }}neutron-base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+{% block opflex_agent_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{{ macros.configure_user(name='opflex') }}
+
+{% if base_package_type == 'deb' %}
+    {% set opflex_agent_packages = [
+        'libboost-system1.83.0',
+        'libboost-filesystem1.83.0',
+        'libboost-program-options1.83.0',
+        'libboost-iostreams1.83.0',
+        'libuv1',
+    ] %}
+{% endif %}
+
+{{ macros.install_packages(opflex_agent_packages | customizable("packages")) }}
+
+{% block opflex_agent_install %}
+{# C++ binaries pre-built by CI and placed in build context #}
+COPY opflex-binaries.tar.gz /tmp/
+RUN tar xzf /tmp/opflex-binaries.tar.gz -C / \
+    && rm /tmp/opflex-binaries.tar.gz \
+    && ldconfig \
+    && mkdir -p /etc/opflex-agent /var/lib/opflex-agent /var/log/opflex-agent \
+    && chown -R opflex:opflex /etc/opflex-agent /var/lib/opflex-agent /var/log/opflex-agent
+
+ADD opflex-agent-archive /opflex-agent-source
+RUN ln -s /opflex-agent-source/* /opflex-agent \
+    && {{ macros.install_pip(['/opflex-agent']) }}
+{% endblock %}
+
+COPY extend_start.sh /usr/local/bin/kolla_extend_start
+RUN chmod 755 /usr/local/bin/kolla_extend_start
+
+{{ macros.kolla_patch_sources() }}
+
+{% block opflex_agent_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER opflex
