@@ -49,6 +49,8 @@ env:
   ZEROCONF_VERSION: '0.147.0'
   MAGNUM_CLUSTER_API_VERSION: '0.35.0'
   GRAFANA_VERSION: '11.6.0'
+  RSCT_VERSION: '3.3.3.4-25273'
+  DYNAMICRM_PPA_VERSION: '2.0.7.3-23-1ubuntu1'
 
 permissions:
   contents: write
@@ -1255,6 +1257,69 @@ jobs:
           path: grafana-deb/*.deb
           retention-days: 5
 
+  build-rsct:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache RSCT debs
+        id: cache
+        uses: actions/cache@v5
+        with:
+          path: rsct-debs
+          key: rsct-ppc64le-${{ env.RSCT_VERSION }}-${{ env.DYNAMICRM_PPA_VERSION }}-deb
+
+      - name: Rebuild RSCT deb-src packages for Debian
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p rsct-debs
+          docker run --rm \
+            -v "${{ github.workspace }}/rsct-debs:/output" \
+            debian:trixie \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends \
+                build-essential fakeroot debhelper devscripts dpkg-dev ca-certificates curl binutils-powerpc64le-linux-gnu
+
+              PPA=https://ppa.launchpadcontent.net/ibmpackages/rsct/ubuntu/pool/main
+              RSCT_VER=${{ env.RSCT_VERSION }}
+              DRM_PPA_VER=${{ env.DYNAMICRM_PPA_VERSION }}
+
+              mkdir -p /build && cd /build
+
+              for pkg in rsct.core rsct.core.utils rsct.basic rsct.opt.storagerm; do
+                letter=${pkg:0:1}
+                dget -u "${PPA}/${letter}/${pkg}/${pkg}_${RSCT_VER}-0.dsc"
+                cd ${pkg}-${RSCT_VER}/
+                dpkg-buildpackage -us -uc -b -d -a ppc64el
+                cd /build
+              done
+
+              dget -u "${PPA}/d/devices.chrp.base.servicerm/devices.chrp.base.servicerm_${RSCT_VER}-0.dsc"
+              cd devices.chrp.base.servicerm-${RSCT_VER}/
+              dpkg-buildpackage -us -uc -b -d -a ppc64el
+              cd /build
+
+              dget -u "${PPA}/s/src/src_${RSCT_VER}-0.dsc"
+              cd src-${RSCT_VER}/
+              dpkg-buildpackage -us -uc -b -d -a ppc64el
+              cd /build
+
+              dget -u "${PPA}/d/dynamicrm/dynamicrm_${DRM_PPA_VER}.dsc"
+              cd dynamicrm-*/
+              sed -i "s/1ubuntu1/1/g" debian/changelog
+              dpkg-buildpackage -us -uc -b -d -a ppc64el
+              cd /build
+
+              cp /build/*.deb /output/
+            '
+          ls -la rsct-debs/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: rsct-debs
+          path: rsct-debs/*.deb
+          retention-days: 5
+
   publish:
     needs:
       - build-proxysql
@@ -1277,6 +1342,7 @@ jobs:
       - build-fluent-package
       - build-opensearch
       - build-grafana
+      - build-rsct
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -1303,6 +1369,7 @@ jobs:
           cp artifacts/fluent-package-deb/*.deb $SITE/ppc64le/apt/
           cp artifacts/opensearch-deb/*.deb $SITE/ppc64le/apt/
           cp artifacts/grafana-deb/*.deb $SITE/ppc64le/apt/
+          cp artifacts/rsct-debs/*.deb $SITE/ppc64le/apt/
           cd $SITE/ppc64le/apt
           dpkg-scanpackages . /dev/null > Packages
           gzip -k Packages
@@ -1413,7 +1480,8 @@ jobs:
           BODY+="python-ldap ${{ env.PYTHON_LDAP_VERSION }}, scrypt ${{ env.SCRYPT_VERSION }}, "
           BODY+="rcssmin ${{ env.RCSSMIN_VERSION }}, rjsmin ${{ env.RJSMIN_VERSION }}, "
           BODY+="zeroconf ${{ env.ZEROCONF_VERSION }}, magnum-cluster-api ${{ env.MAGNUM_CLUSTER_API_VERSION }}, "
-          BODY+="grafana ${{ env.GRAFANA_VERSION }}"
+          BODY+="grafana ${{ env.GRAFANA_VERSION }}, "
+          BODY+="RSCT ${{ env.RSCT_VERSION }}, dynamicrm ${{ env.DYNAMICRM_PPA_VERSION }}"
 
           gh release create "$TAG" \
             --title "ppc64le deps $(date +%Y-%m-%d)" \
@@ -1459,7 +1527,8 @@ jobs:
             artifacts/openstack-exporter-binary/* \
             artifacts/mtail-binary/* \
             artifacts/libvirt-exporter-binary/* \
-            artifacts/opflex-binaries-*/*.tar.gz
+            artifacts/opflex-binaries-*/*.tar.gz \
+            artifacts/rsct-debs/*.deb
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
