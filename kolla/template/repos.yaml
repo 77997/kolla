@@ -67,6 +67,11 @@ debian-aarch64:
     gpg_key: "rabbitmq.gpg"
 
 debian-ppc64le:
+  grafana:
+    url: "https://77997.github.io/kolla/ppc64le/apt"
+    suite: "./"
+    component: ""
+    gpg_key: "kolla-ppc64le.asc"
   fluentd:
     url: "https://77997.github.io/kolla/ppc64le/apt"
     suite: "./"

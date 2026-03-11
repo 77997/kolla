@@ -48,6 +48,7 @@ env:
   RJSMIN_VERSION: '1.2.2'
   ZEROCONF_VERSION: '0.147.0'
   MAGNUM_CLUSTER_API_VERSION: '0.35.0'
+  GRAFANA_VERSION: '11.6.0'
 
 permissions:
   contents: write
@@ -1133,6 +1134,130 @@ jobs:
           path: opensearch-deb/*.deb
           retention-days: 5
 
+  build-grafana:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache grafana deb
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: grafana-deb
+          key: grafana-ppc64le-${{ env.GRAFANA_VERSION }}-deb
+
+      - name: Cross-compile Go binaries for ppc64le
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p grafana-deb
+          docker run --rm \
+            -v "${{ github.workspace }}/grafana-src:/src" \
+            -v "${{ github.workspace }}/grafana-deb:/output" \
+            golang:1.25-trixie \
+            bash -c '
+              set -ex
+              apt-get update && apt-get install -y --no-install-recommends gcc-powerpc64le-linux-gnu libc6-dev-ppc64el-cross make
+
+              git clone --depth 1 --branch v${{ env.GRAFANA_VERSION }} \
+                https://github.com/grafana/grafana.git /src
+
+              cd /src
+              make gen-go WIRE_TAGS=oss
+
+              VERSION=$(grep "\"version\"" package.json | head -1 | sed "s/.*\": \"\(.*\)\".*/\1/")
+              COMMIT=$(git rev-parse --short HEAD)
+              BUILDSTAMP=$(date +%s)
+
+              export CGO_ENABLED=1
+              export CC=powerpc64le-linux-gnu-gcc
+              export GOOS=linux
+              export GOARCH=ppc64le
+
+              LDFLAGS="-w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildstamp=${BUILDSTAMP} -X main.buildBranch=v${{ env.GRAFANA_VERSION }}"
+
+              for bin in grafana grafana-server grafana-cli; do
+                go build -trimpath -tags oss -ldflags "${LDFLAGS}" -o /output/${bin} ./pkg/cmd/${bin}
+              done
+            '
+
+      - name: Build frontend
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/grafana-src:/src" \
+            -w /src \
+            -e NODE_OPTIONS=--max_old_space_size=4096 \
+            -e NODE_ENV=production \
+            node:22 \
+            bash -c '
+              set -ex
+              corepack enable
+              YARN_ENABLE_PROGRESS_BARS=false yarn install --immutable
+              yarn run build
+            '
+
+      - name: Package with FPM
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          VERSION=$(grep '"version"' grafana-src/package.json | head -1 | sed 's/.*": "\(.*\)".*/\1/')
+          docker run --rm \
+            -v "${{ github.workspace }}/grafana-src:/src" \
+            -v "${{ github.workspace }}/grafana-deb:/output" \
+            -e VERSION="${VERSION}" \
+            ruby:3.2.2-bullseye \
+            bash -c '
+              set -ex
+              gem install fpm
+              apt-get update && apt-get install -y --no-install-recommends rpm
+
+              mkdir -p /pkg/usr/sbin /pkg/usr/share /pkg/etc/grafana \
+                       /pkg/usr/lib/systemd/system /pkg/etc/init.d /pkg/etc/default
+
+              cp /src/packaging/wrappers/grafana-server /pkg/usr/sbin/
+              cp /src/packaging/wrappers/grafana-cli /pkg/usr/sbin/
+              chmod +x /pkg/usr/sbin/grafana-server /pkg/usr/sbin/grafana-cli
+
+              mkdir -p /pkg/usr/share/grafana/bin
+              cp /output/grafana /output/grafana-server /output/grafana-cli \
+                /pkg/usr/share/grafana/bin/
+              cp -r /src/public /pkg/usr/share/grafana/public
+              cp -r /src/conf /pkg/usr/share/grafana/conf
+              cp /src/LICENSE /src/NOTICE.md /pkg/usr/share/grafana/ 2>/dev/null || true
+              echo "${VERSION}" > /pkg/usr/share/grafana/VERSION
+
+              cp /src/packaging/deb/systemd/grafana-server.service /pkg/usr/lib/systemd/system/
+              cp /src/packaging/deb/init.d/* /pkg/etc/init.d/ 2>/dev/null || true
+              cp /src/packaging/deb/default/* /pkg/etc/default/ 2>/dev/null || true
+
+              cp /src/conf/defaults.ini /pkg/etc/grafana/grafana.ini
+              cp /src/conf/ldap.toml /pkg/etc/grafana/ldap.toml
+
+              cd /pkg
+              fpm \
+                --input-type dir \
+                --output-type deb \
+                --name grafana \
+                --version ${VERSION} \
+                --architecture ppc64el \
+                --vendor "Grafana Labs" \
+                --url https://grafana.com \
+                --maintainer contact@grafana.com \
+                --description Grafana \
+                --license AGPLv3 \
+                --after-install /src/packaging/deb/control/postinst \
+                --before-remove /src/packaging/deb/control/prerm \
+                --config-files /etc/grafana \
+                --config-files /etc/default/grafana-server \
+                --package /output/ \
+                .
+            '
+          ls -la grafana-deb/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafana-deb
+          path: grafana-deb/*.deb
+          retention-days: 5
+
   publish:
     needs:
       - build-proxysql
@@ -1154,6 +1279,7 @@ jobs:
       - build-opflex
       - build-fluent-package
       - build-opensearch
+      - build-grafana
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -1179,6 +1305,7 @@ jobs:
           cp artifacts/proxysql-deb/*.deb $SITE/ppc64le/apt/
           cp artifacts/fluent-package-deb/*.deb $SITE/ppc64le/apt/
           cp artifacts/opensearch-deb/*.deb $SITE/ppc64le/apt/
+          cp artifacts/grafana-deb/*.deb $SITE/ppc64le/apt/
           cd $SITE/ppc64le/apt
           dpkg-scanpackages . /dev/null > Packages
           gzip -k Packages
@@ -1288,7 +1415,8 @@ jobs:
           BODY+="gssapi ${{ env.GSSAPI_VERSION }}, krb5 ${{ env.KRB5_VERSION }}, "
           BODY+="python-ldap ${{ env.PYTHON_LDAP_VERSION }}, scrypt ${{ env.SCRYPT_VERSION }}, "
           BODY+="rcssmin ${{ env.RCSSMIN_VERSION }}, rjsmin ${{ env.RJSMIN_VERSION }}, "
-          BODY+="zeroconf ${{ env.ZEROCONF_VERSION }}, magnum-cluster-api ${{ env.MAGNUM_CLUSTER_API_VERSION }}"
+          BODY+="zeroconf ${{ env.ZEROCONF_VERSION }}, magnum-cluster-api ${{ env.MAGNUM_CLUSTER_API_VERSION }}, "
+          BODY+="grafana ${{ env.GRAFANA_VERSION }}"
 
           gh release create "$TAG" \
             --title "ppc64le deps $(date +%Y-%m-%d)" \
@@ -1296,6 +1424,7 @@ jobs:
             artifacts/proxysql-deb/*.deb \
             artifacts/fluent-package-deb/*.deb \
             artifacts/opensearch-deb/*.deb \
+            artifacts/grafana-deb/*.deb \
             artifacts/grpcio-wheel/*.whl \
             artifacts/crypto-wheels/*.whl \
             artifacts/py-radix-wheel/*.whl \

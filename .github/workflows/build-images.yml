@@ -36,6 +36,10 @@ jobs:
           - profile: infra
           - profile: main
           - profile: aux
+          - profile: monitoring
+            regex: "prometheus|grafana"
+          - profile: valkey
+            regex: "valkey"
     permissions:
       contents: read
       packages: write
@@ -126,6 +130,10 @@ jobs:
             regex: "manila|masakari|mistral|octavia|tacker"
           - profile: aux-4
             regex: "telegraf|trove|zookeeper|zun"
+          - profile: monitoring
+            regex: "prometheus|grafana"
+          - profile: valkey
+            regex: "valkey"
     permissions:
       contents: read
       packages: write
