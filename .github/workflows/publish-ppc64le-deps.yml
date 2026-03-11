@@ -100,26 +100,23 @@ jobs:
               sed -i "/lcoredumper/d" src/Makefile
               make -j$(nproc)
 
-              # Package as .deb using equivs
-              mkdir -p /build/pkg/usr/bin
-              cp src/proxysql /build/pkg/usr/bin/proxysql
-              chmod 755 /build/pkg/usr/bin/proxysql
+              # Package as .deb -- upstream-aligned staging + equivs-build
+              ARCH=$(dpkg --print-architecture)
+              mkdir -p /build/pkgroot/tmp
+              cd /build/pkgroot
 
-              {
-                echo "Section: database"
-                echo "Priority: optional"
-                echo "Standards-Version: 4.6.2"
-                echo "Package: proxysql"
-                echo "Version: ${VERSION}-1"
-                echo "Maintainer: Kolla ppc64le <kolla-ppc64le@noreply.github.com>"
-                echo "Architecture: ppc64el"
-                echo "Depends: libgnutls30t64, libmariadb3, libunwind8"
-                echo "Description: ProxySQL for ppc64le"
-                echo " Pre-built ProxySQL binary packaged for Kolla ppc64le builds."
-              } > /build/pkg/proxysql.ctl
+              cp /build/proxysql/docker/images/proxysql/deb-compliant/latest-package/ctl/proxysql.ctl ./
+              cp /build/proxysql/docker/images/proxysql/deb-compliant/latest-package/ctl/copyright ./
+              sed -i "s/PKG_VERSION_CURVER/${VERSION}/g" ./proxysql.ctl
+              sed -i "s/PKG_ARCH/${ARCH}/g" ./proxysql.ctl
+              sed -i "s/PKG_YEAR/$(date +%Y)/g" ./copyright
 
-              cd /build/pkg
-              equivs-build proxysql.ctl
+              cp /build/proxysql/src/proxysql ./
+              cp -r /build/proxysql/etc ./etc
+              cp -r /build/proxysql/tools ./tools
+              cp -r /build/proxysql/systemd ./systemd
+
+              DEB_BUILD_OPTIONS=nostrip equivs-build proxysql.ctl
               cp proxysql_*.deb /output/
             '
           ls -la proxysql-deb/
