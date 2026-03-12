@@ -47,6 +47,7 @@ env:
   RCSSMIN_VERSION: '1.1.2'
   RJSMIN_VERSION: '1.2.2'
   ZEROCONF_VERSION: '0.147.0'
+  IMMUTABLES_VERSION: '0.21'
   MAGNUM_CLUSTER_API_VERSION: '0.35.0'
   GRAFANA_VERSION: '11.6.0'
   RSCT_VERSION: '3.3.3.4-25273'
@@ -521,6 +522,11 @@ jobs:
           - pip_name: rjsmin
             pip_pkg: rjsmin
             version: '1.2.2'
+            apt_deps: ''
+            extra_env: ''
+          - pip_name: immutables
+            pip_pkg: immutables
+            version: '0.21'
             apt_deps: ''
             extra_env: ''
           - pip_name: zeroconf
@@ -1427,7 +1433,7 @@ jobs:
           for pkg in pyyaml markupsafe msgpack wrapt psutil pyrsistent netifaces tornado sysv-ipc ujson \
                      pillow psycopg2 grpcio pynacl py-radix numpy pyzmq \
                      libsass zstd lz4 ruamel-yaml-clib yappi \
-                     python-ldap scrypt rcssmin rjsmin zeroconf gssapi krb5 magnum-cluster-api; do
+                     python-ldap scrypt rcssmin rjsmin immutables zeroconf gssapi krb5 magnum-cluster-api; do
             mkdir -p "$SITE/ppc64le/simple/$pkg"
             cp artifacts/${pkg}-wheel/*.whl "$SITE/ppc64le/simple/$pkg/" 2>/dev/null || true
             generate_pip_index "$pkg"
@@ -1479,6 +1485,7 @@ jobs:
           BODY+="gssapi ${{ env.GSSAPI_VERSION }}, krb5 ${{ env.KRB5_VERSION }}, "
           BODY+="python-ldap ${{ env.PYTHON_LDAP_VERSION }}, scrypt ${{ env.SCRYPT_VERSION }}, "
           BODY+="rcssmin ${{ env.RCSSMIN_VERSION }}, rjsmin ${{ env.RJSMIN_VERSION }}, "
+          BODY+="immutables ${{ env.IMMUTABLES_VERSION }}, "
           BODY+="zeroconf ${{ env.ZEROCONF_VERSION }}, magnum-cluster-api ${{ env.MAGNUM_CLUSTER_API_VERSION }}, "
           BODY+="grafana ${{ env.GRAFANA_VERSION }}, "
           BODY+="RSCT ${{ env.RSCT_VERSION }}, dynamicrm ${{ env.DYNAMICRM_PPA_VERSION }}"
@@ -1518,6 +1525,7 @@ jobs:
             artifacts/scrypt-wheel/*.whl \
             artifacts/rcssmin-wheel/*.whl \
             artifacts/rjsmin-wheel/*.whl \
+            artifacts/immutables-wheel/*.whl \
             artifacts/zeroconf-wheel/*.whl \
             artifacts/gssapi-wheel/*.whl \
             artifacts/krb5-wheel/*.whl \

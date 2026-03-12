@@ -40,6 +40,22 @@ jobs:
             regex: "prometheus|grafana"
           - profile: valkey
             regex: "valkey"
+          - profile: cyborg
+            regex: "cyborg"
+          - profile: dnsmasq
+            regex: "dnsmasq"
+          - profile: lldpd
+            regex: "lldpd"
+          - profile: multipathd
+            regex: "multipathd"
+          - profile: ovn
+            regex: "ovn"
+          - profile: ovsdpdk
+            regex: "ovsdpdk"
+          - profile: skyline
+            regex: "skyline"
+          - profile: watcher
+            regex: "watcher"
     permissions:
       contents: read
       packages: write
@@ -134,6 +150,22 @@ jobs:
             regex: "prometheus|grafana"
           - profile: valkey
             regex: "valkey"
+          - profile: cyborg
+            regex: "cyborg"
+          - profile: dnsmasq
+            regex: "dnsmasq"
+          - profile: lldpd
+            regex: "lldpd"
+          - profile: multipathd
+            regex: "multipathd"
+          - profile: ovn
+            regex: "ovn"
+          - profile: ovsdpdk
+            regex: "ovsdpdk"
+          - profile: skyline
+            regex: "skyline"
+          - profile: watcher
+            regex: "watcher"
     permissions:
       contents: read
       packages: write
