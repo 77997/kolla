@@ -1,0 +1,498 @@
+diff --git a/gbpservice/neutron/db/grouppolicy/extensions/apic_auto_ptg_db.py b/gbpservice/neutron/db/grouppolicy/extensions/apic_auto_ptg_db.py
+index 4c273af..4afa38a 100644
+--- a/gbpservice/neutron/db/grouppolicy/extensions/apic_auto_ptg_db.py
++++ b/gbpservice/neutron/db/grouppolicy/extensions/apic_auto_ptg_db.py
+@@ -43,7 +43,7 @@ class ApicAutoPtgDBMixin(object):
+ 
+     def set_is_auto_ptg(self, session, policy_target_group_id,
+                         is_auto_ptg=False):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             row = ApicAutoPtgDB(policy_target_group_id=policy_target_group_id,
+                                 is_auto_ptg=is_auto_ptg)
+             session.add(row)
+diff --git a/gbpservice/neutron/db/grouppolicy/extensions/apic_intra_ptg_db.py b/gbpservice/neutron/db/grouppolicy/extensions/apic_intra_ptg_db.py
+index 2bd29ec..991488c 100644
+--- a/gbpservice/neutron/db/grouppolicy/extensions/apic_intra_ptg_db.py
++++ b/gbpservice/neutron/db/grouppolicy/extensions/apic_intra_ptg_db.py
+@@ -43,7 +43,7 @@ class ApicIntraPtgDBMixin(object):
+ 
+     def set_intra_ptg_allow(self, session, policy_target_group_id,
+                             intra_ptg_allow=True):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             query = BAKERY(lambda s: s.query(
+                 ApicIntraPtgDB))
+             query += lambda q: q.filter_by(
+diff --git a/gbpservice/neutron/db/grouppolicy/extensions/apic_reuse_bd_db.py b/gbpservice/neutron/db/grouppolicy/extensions/apic_reuse_bd_db.py
+index 3d13472..628d5b6 100644
+--- a/gbpservice/neutron/db/grouppolicy/extensions/apic_reuse_bd_db.py
++++ b/gbpservice/neutron/db/grouppolicy/extensions/apic_reuse_bd_db.py
+@@ -46,7 +46,7 @@ class ApicReuseBdDBMixin(object):
+ 
+     def add_reuse_bd_l2policy(self, session, l2_policy_id,
+                               target_l2_policy_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             row = ApicReuseBdDB(l2_policy_id=l2_policy_id,
+                                 target_l2_policy_id=target_l2_policy_id)
+             session.add(row)
+diff --git a/gbpservice/neutron/db/implicitsubnetpool_db.py b/gbpservice/neutron/db/implicitsubnetpool_db.py
+index 97c7f69..7b89d4b 100644
+--- a/gbpservice/neutron/db/implicitsubnetpool_db.py
++++ b/gbpservice/neutron/db/implicitsubnetpool_db.py
+@@ -90,7 +90,7 @@ class ImplicitSubnetpoolMixin(object):
+             filters["tenant_id"] = [tenant]
+         else:
+             filters["shared"] = [True]
+-        with context.session.begin(subtransactions=True):
++        with context.session.begin_nested():
+             return self.get_subnetpools(admin_context, filters)
+ 
+     def _get_implicit_subnetpool(self, context, subnetpool_id):
+@@ -113,7 +113,7 @@ class ImplicitSubnetpoolMixin(object):
+         is_implicit = False
+         if validators.is_attr_set(subnetpool.get('is_implicit')):
+             is_implicit = subnetpool['is_implicit']
+-        with context.session.begin(subtransactions=True):
++        with context.session.begin_nested():
+             if is_implicit:
+                 # Verify feasibility. Only one implicit SP must exist per
+                 # tenant (or global)
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/env.py b/gbpservice/neutron/db/migration/alembic_migrations/env.py
+index 556d31a..94f4ed8 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/env.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/env.py
+@@ -78,6 +78,7 @@ def run_migrations_online():
+     try:
+         with context.begin_transaction():
+             context.run_migrations()
++            connection.commit()
+     finally:
+         connection.close()
+         engine.dispose()
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/1c564e737f9f_network_extension_migration_for_svi.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/1c564e737f9f_network_extension_migration_for_svi.py
+index 1950838..a3cdb81 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/1c564e737f9f_network_extension_migration_for_svi.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/1c564e737f9f_network_extension_migration_for_svi.py
+@@ -45,8 +45,8 @@ NetworkExtensionDb = sa.Table(
+ 
+ 
+ def upgrade():
+-    session = sa.orm.Session(bind=op.get_bind(), autocommit=True)
+-    with session.begin(subtransactions=True):
++    session = sa.orm.Session(bind=op.get_bind())
++    with session.begin_nested():
+         # Migrate networks.
+         net_dbs = (session.query(models_v2.Network)
+                    .options(lazyload('*')).all())
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/68fcb81878c5_alter_ha_ip_address_table.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/68fcb81878c5_alter_ha_ip_address_table.py
+index 997fe4f..3ed626f 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/68fcb81878c5_alter_ha_ip_address_table.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/68fcb81878c5_alter_ha_ip_address_table.py
+@@ -40,8 +40,8 @@ def upgrade():
+             from gbpservice.neutron.plugins.ml2plus.drivers.apic_aim import (
+                 data_migrations)
+ 
+-            session = sa.orm.Session(bind=bind, autocommit=True)
+-            with session.begin(subtransactions=True):
++            session = sa.orm.Session(bind=bind)
++            with session.begin_nested():
+                 data_migrations.do_ha_ip_duplicate_entries_removal(session)
+                 data_migrations.do_ha_ip_network_id_insertion(session)
+         except ImportError:
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/7eaf537d927f_sg_rule_remote_group_id_insertion.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/7eaf537d927f_sg_rule_remote_group_id_insertion.py
+index 25e29e6..362a2a2 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/7eaf537d927f_sg_rule_remote_group_id_insertion.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/7eaf537d927f_sg_rule_remote_group_id_insertion.py
+@@ -40,7 +40,7 @@ def upgrade():
+             from gbpservice.neutron.plugins.ml2plus.drivers.apic_aim import (
+                 data_migrations)
+ 
+-            session = sa.orm.Session(bind=bind, autocommit=True)
++            session = sa.orm.Session(bind=bind)
+             data_migrations.do_sg_rule_remote_group_id_insertion(session)
+         except ImportError:
+             util.warn("AIM schema present, but failed to import AIM libraries"
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/886c376885a3_sg_migration.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/886c376885a3_sg_migration.py
+index b7219df..d67e09a 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/886c376885a3_sg_migration.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/886c376885a3_sg_migration.py
+@@ -40,7 +40,7 @@ def upgrade():
+             from gbpservice.neutron.plugins.ml2plus.drivers.apic_aim import (
+                 data_migrations)
+ 
+-            session = sa.orm.Session(bind=bind, autocommit=True)
++            session = sa.orm.Session(bind=bind)
+             data_migrations.do_apic_aim_security_group_migration(session)
+         except ImportError:
+             util.warn("AIM schema present, but failed to import AIM libraries"
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/cc09261e0fb5_apic_aim_persist.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/cc09261e0fb5_apic_aim_persist.py
+index fc4517b..55605f3 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/cc09261e0fb5_apic_aim_persist.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/cc09261e0fb5_apic_aim_persist.py
+@@ -69,7 +69,7 @@ def upgrade():
+             from gbpservice.neutron.plugins.ml2plus.drivers.apic_aim import (
+                 data_migrations)
+ 
+-            session = sa.orm.Session(bind=bind, autocommit=True)
++            session = sa.orm.Session(bind=bind)
+             data_migrations.do_apic_aim_persist_migration(session)
+         except ImportError:
+             util.warn("AIM schema present, but failed to import AIM libraries"
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/facc1ababba1_change_common_ap_name.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/facc1ababba1_change_common_ap_name.py
+index 85c8bfd..bff074c 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/facc1ababba1_change_common_ap_name.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/facc1ababba1_change_common_ap_name.py
+@@ -38,7 +38,7 @@ def upgrade():
+         from gbpservice.neutron.plugins.ml2plus.drivers.apic_aim import (
+             data_migrations)
+ 
+-        session = sa.orm.Session(bind=bind, autocommit=True)
++        session = sa.orm.Session(bind=bind)
+         data_migrations.do_ap_name_change(session)
+ 
+ 
+diff --git a/gbpservice/neutron/db/migration/alembic_migrations/versions/fd3e605a7232_create_hpp_db.py b/gbpservice/neutron/db/migration/alembic_migrations/versions/fd3e605a7232_create_hpp_db.py
+index 26186a6..07d55bf 100644
+--- a/gbpservice/neutron/db/migration/alembic_migrations/versions/fd3e605a7232_create_hpp_db.py
++++ b/gbpservice/neutron/db/migration/alembic_migrations/versions/fd3e605a7232_create_hpp_db.py
+@@ -39,8 +39,8 @@ def upgrade():
+         from gbpservice.neutron.plugins.ml2plus.drivers.apic_aim import (
+              data_migrations)
+ 
+-        session = sa.orm.Session(bind=bind, autocommit=True)
+-        with session.begin(subtransactions=True):
++        session = sa.orm.Session(bind=bind)
++        with session.begin_nested():
+             data_migrations.do_hpp_insertion(session)
+     except Exception as e:
+         util.warn("Caught exception while migrating data in %s: %s" %
+diff --git a/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/data_migrations.py b/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/data_migrations.py
+index 041f008..f3cce85 100644
+--- a/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/data_migrations.py
++++ b/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/data_migrations.py
+@@ -139,7 +139,7 @@ def do_apic_aim_persist_migration(session):
+ 
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+         # Migrate address scopes.
+         scope_dbs = (session.query(as_db.AddressScope)
+                      .options(lazyload('*')).all())
+@@ -277,7 +277,7 @@ def do_ap_name_change(session, conf=None):
+     alembic_util.msg("APIC System ID: %s" % system_id)
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+         net_dbs = session.query(models_v2.Network).options(lazyload('*')).all()
+         for net_db in net_dbs:
+             ext_db = _get_network_extn_db(session, net_db.id)
+@@ -371,7 +371,7 @@ def do_apic_aim_security_group_migration(session):
+     mapper = apic_mapper.APICNameMapper()
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+         # Migrate SG.
+         sg_dbs = (session.query(sg_models.SecurityGroup).
+                   options(lazyload('*')).all())
+@@ -445,7 +445,7 @@ def do_sg_rule_remote_group_id_insertion(session):
+     mapper = apic_mapper.APICNameMapper()
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+         sg_rule_dbs = (session.query(sg_models.SecurityGroupRule).
+                        options(lazyload('*')).all())
+         for sg_rule_db in sg_rule_dbs:
+@@ -477,7 +477,7 @@ def do_ha_ip_duplicate_entries_removal(session):
+ 
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+         port_and_haip_dbs = (session.query(models_v2.Port,
+                              HAIPAddressToPortAssociation).join(
+                              HAIPAddressToPortAssociation,
+@@ -511,7 +511,7 @@ def do_ha_ip_network_id_insertion(session):
+ 
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+ 
+         port_and_haip_dbs = (session.query(models_v2.Port,
+                              HAIPAddressToPortAssociation).join(
+@@ -535,7 +535,7 @@ def do_hpp_insertion(session):
+ 
+     # REVISIT: needs to add support for context_reader/
+     # context_writer
+-    with session.begin(subtransactions=True):
++    with session.begin_nested():
+         session.execute(HPPDB.insert().values(hpp_normalized=False))
+ 
+     alembic_util.msg(
+diff --git a/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/db.py b/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/db.py
+index 134aa0d..d48b49c 100644
+--- a/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/db.py
++++ b/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/db.py
+@@ -494,7 +494,7 @@ class DbMixin(object):
+         return query(session).all()
+ 
+     def _set_vm_name(self, session, device_id, vm_name):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             db_obj = self._get_vm_name(session, device_id,
+                                        is_detailed=True)
+             if db_obj:
+@@ -504,7 +504,7 @@ class DbMixin(object):
+             session.add(db_obj)
+ 
+     def _delete_vm_name(self, session, device_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             db_obj = self._get_vm_name(session, device_id,
+                                        is_detailed=True)
+             if db_obj:
+@@ -519,7 +519,7 @@ class DbMixin(object):
+     def _set_vm_name_update(self, session, db_obj, host_id,
+                             last_incremental_update_time,
+                             last_full_update_time=None):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             if db_obj:
+                 db_obj.host_id = host_id
+                 db_obj.last_incremental_update_time = (
+diff --git a/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/extension_db.py b/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/extension_db.py
+index 0a85fac..e6f312e 100644
+--- a/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/extension_db.py
++++ b/gbpservice/neutron/plugins/ml2plus/drivers/apic_aim/extension_db.py
+@@ -242,7 +242,7 @@ class ExtensionDbMixin(object):
+         return port_res
+ 
+     def set_port_extn_db(self, session, port_id, res_dict):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             if cisco_apic.ERSPAN_CONFIG in res_dict:
+                 self._update_dict_attr(
+                         session, PortExtensionErspanDb,
+@@ -386,7 +386,7 @@ class ExtensionDbMixin(object):
+         return net_res
+ 
+     def set_network_extn_db(self, session, network_id, res_dict):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             query = BAKERY(lambda s: s.query(
+                 NetworkExtensionDb))
+             query += lambda q: q.filter_by(
+@@ -695,7 +695,7 @@ class ExtensionDbMixin(object):
+         # Updates are deletions with additions, so to ensure that
+         # the delete happens before a subsequent addtion, we create
+         # a subtransaction
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             for r in rows:
+                 curr_obj = {key: r[key] for key in keys}
+                 if curr_obj in new_values:
+@@ -708,7 +708,7 @@ class ExtensionDbMixin(object):
+             session.add(db_obj)
+ 
+     def set_router_extn_db(self, session, router_id, res_dict):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             if cisco_apic_l3.EXTERNAL_PROVIDED_CONTRACTS in res_dict:
+                 self._update_list_attr(session, RouterExtensionContractDb,
+                    'contract_name',
+@@ -721,13 +721,13 @@ class ExtensionDbMixin(object):
+                     router_id=router_id, provides=False)
+ 
+     def get_hpp_normalized(self, session):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             query = BAKERY(lambda s: s.query(HPPDb))
+             db_obj = query(session).first()
+             return db_obj['hpp_normalized']
+ 
+     def set_hpp_normalized(self, session, hpp_normalized):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             query = BAKERY(lambda s: s.query(HPPDb))
+             db_obj = query(session).first()
+             db_obj['hpp_normalized'] = hpp_normalized
+diff --git a/gbpservice/neutron/plugins/ml2plus/plugin.py b/gbpservice/neutron/plugins/ml2plus/plugin.py
+index 53c2a2c..58ac1bb 100644
+--- a/gbpservice/neutron/plugins/ml2plus/plugin.py
++++ b/gbpservice/neutron/plugins/ml2plus/plugin.py
+@@ -259,7 +259,7 @@ class Ml2PlusPlugin(ml2_plugin.Ml2Plugin,
+             # current context, which should be available in
+             # the session.info's dictionary, with a key of
+             # 'using_context').
+-            with session.begin(subtransactions=True):
++            with session.begin_nested():
+                 plugin.extension_manager.extend_subnet_dict(
+                         session, subnetdb, result)
+         else:
+@@ -293,7 +293,7 @@ class Ml2PlusPlugin(ml2_plugin.Ml2Plugin,
+             # current context, which should be available in
+             # the session.info's dictionary, with a key of
+             # 'using_context').
+-            with session.begin(subtransactions=True):
++            with session.begin_nested():
+                 plugin.extension_manager.extend_subnetpool_dict(
+                         session, subnetpooldb, result)
+         else:
+diff --git a/gbpservice/neutron/services/grouppolicy/drivers/implicit_policy.py b/gbpservice/neutron/services/grouppolicy/drivers/implicit_policy.py
+index 43a420c..124fc43 100644
+--- a/gbpservice/neutron/services/grouppolicy/drivers/implicit_policy.py
++++ b/gbpservice/neutron/services/grouppolicy/drivers/implicit_policy.py
+@@ -171,7 +171,7 @@ class ImplicitPolicyBase(api.PolicyDriver, local_api.LocalAPI):
+         context.set_l2_policy_id(context.current['l2_policy_id'])
+ 
+     def _mark_l2_policy_owned(self, session, l2p_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedL2Policy(l2_policy_id=l2p_id)
+             session.add(owned)
+ 
+@@ -182,7 +182,7 @@ class ImplicitPolicyBase(api.PolicyDriver, local_api.LocalAPI):
+                     first() is not None)
+ 
+     def _mark_l3_policy_owned(self, session, l3p_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedL3Policy(l3_policy_id=l3p_id)
+             session.add(owned)
+ 
+diff --git a/gbpservice/neutron/services/grouppolicy/drivers/resource_mapping.py b/gbpservice/neutron/services/grouppolicy/drivers/resource_mapping.py
+index 90cd856..a698eda 100755
+--- a/gbpservice/neutron/services/grouppolicy/drivers/resource_mapping.py
++++ b/gbpservice/neutron/services/grouppolicy/drivers/resource_mapping.py
+@@ -161,7 +161,7 @@ class OwnedResourcesOperations(object):
+     # by creating a resource to DB class name mapping.
+ 
+     def _mark_port_owned(self, session, port_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedPort(port_id=port_id)
+             session.add(owned)
+ 
+@@ -172,7 +172,7 @@ class OwnedResourcesOperations(object):
+                     first() is not None)
+ 
+     def _mark_subnet_owned(self, session, subnet_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedSubnet(subnet_id=subnet_id)
+             session.add(owned)
+ 
+@@ -183,7 +183,7 @@ class OwnedResourcesOperations(object):
+                     first() is not None)
+ 
+     def _mark_network_owned(self, session, network_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedNetwork(network_id=network_id)
+             session.add(owned)
+ 
+@@ -194,7 +194,7 @@ class OwnedResourcesOperations(object):
+                     first() is not None)
+ 
+     def _mark_router_owned(self, session, router_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedRouter(router_id=router_id)
+             session.add(owned)
+ 
+@@ -205,7 +205,7 @@ class OwnedResourcesOperations(object):
+                     first() is not None)
+ 
+     def _mark_address_scope_owned(self, session, address_scope_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedAddressScope(address_scope_id=address_scope_id)
+             session.add(owned)
+ 
+@@ -216,7 +216,7 @@ class OwnedResourcesOperations(object):
+                     first() is not None)
+ 
+     def _mark_subnetpool_owned(self, session, subnetpool_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             owned = OwnedSubnetpool(subnetpool_id=subnetpool_id)
+             session.add(owned)
+ 
+@@ -2698,7 +2698,7 @@ class ResourceMappingDriver(api.PolicyDriver, ImplicitResourceOperations,
+ 
+     def _set_policy_rule_set_sg_mapping(
+         self, session, policy_rule_set_id, consumed_sg_id, provided_sg_id):
+-        with session.begin(subtransactions=True):
++        with session.begin_nested():
+             mapping = PolicyRuleSetSGsMapping(
+                 policy_rule_set_id=policy_rule_set_id,
+                 consumed_sg_id=consumed_sg_id, provided_sg_id=provided_sg_id)
+diff --git a/gbpservice/neutron/services/grouppolicy/group_policy_context.py b/gbpservice/neutron/services/grouppolicy/group_policy_context.py
+index 85e6548..85e8a0f 100644
+--- a/gbpservice/neutron/services/grouppolicy/group_policy_context.py
++++ b/gbpservice/neutron/services/grouppolicy/group_policy_context.py
+@@ -203,7 +203,7 @@ class L3PolicyContext(GroupPolicyContext, api.L3PolicyContext):
+         external_segments = {external_segment_id: []}
+         self.current['external_segments'] = external_segments
+         plugin_context = self._plugin_context
+-        with plugin_context.session.begin(subtransactions=True):
++        with plugin_context.session.begin_nested():
+             l3p_db = self._plugin._get_l3_policy(plugin_context,
+                                                  self._l3_policy['id'])
+             self._plugin._set_ess_for_l3p(plugin_context, l3p_db,
+diff --git a/gbpservice/neutron/services/sfc/aim/flowc_driver.py b/gbpservice/neutron/services/sfc/aim/flowc_driver.py
+index b3a8733..7f39268 100644
+--- a/gbpservice/neutron/services/sfc/aim/flowc_driver.py
++++ b/gbpservice/neutron/services/sfc/aim/flowc_driver.py
+@@ -128,7 +128,7 @@ class FlowclassifierAIMDriver(FlowclassifierAIMDriverBase):
+ 
+     def _get_classifiers_by_network_id(self, plugin_context, network_id):
+         context = plugin_context
+-        with context.session.begin(subtransactions=True):
++        with context.session.begin_nested():
+             classifier_ids = []
+             for keyword in [sfc_cts.LOGICAL_SRC_NET, sfc_cts.LOGICAL_DST_NET]:
+                 query = BAKERY(lambda s: s.query(
+diff --git a/gbpservice/neutron/tests/unit/services/grouppolicy/test_resource_mapping.py b/gbpservice/neutron/tests/unit/services/grouppolicy/test_resource_mapping.py
+index 219b1f9..fbd5439 100644
+--- a/gbpservice/neutron/tests/unit/services/grouppolicy/test_resource_mapping.py
++++ b/gbpservice/neutron/tests/unit/services/grouppolicy/test_resource_mapping.py
+@@ -176,20 +176,20 @@ class ResourceMappingTestCase(test_plugin.GroupPolicyPluginTestCase):
+ 
+     def _get_nsp_qosp_mapping(self, nsp_id):
+         ctx = nctx.get_admin_context()
+-        with ctx.session.begin(subtransactions=True):
++        with ctx.session.begin_nested():
+             return (ctx.session.query(
+                 nsp_manager.ServicePolicyQosPolicyMapping).
+                     filter_by(service_policy_id=nsp_id).first())
+ 
+     def _get_qos_policy(self, qos_policy_id):
+         ctx = nctx.get_admin_context()
+-        with ctx.session.begin(subtransactions=True):
++        with ctx.session.begin_nested():
+             return (ctx.session.query(qos_models.QosPolicy).
+                     filter_by(id=qos_policy_id).first())
+ 
+     def _get_qos_rules(self, qos_policy_id):
+         ctx = nctx.get_admin_context()
+-        with ctx.session.begin(subtransactions=True):
++        with ctx.session.begin_nested():
+             return (ctx.session.query(qos_models.QosBandwidthLimitRule).
+                     filter_by(qos_policy_id=qos_policy_id).all())
+ 
+@@ -401,7 +401,7 @@ class ResourceMappingTestCase(test_plugin.GroupPolicyPluginTestCase):
+ 
+     def _get_nsp_ptg_fip_mapping(self, ptg_id):
+         ctx = nctx.get_admin_context()
+-        with ctx.session.begin(subtransactions=True):
++        with ctx.session.begin_nested():
+             return (ctx.session.query(
+                         nsp_manager.ServicePolicyPTGFipMapping).
+                     filter_by(policy_target_group_id=ptg_id).
