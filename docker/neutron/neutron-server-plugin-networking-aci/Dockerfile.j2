@@ -1,0 +1,46 @@
+FROM {{ namespace }}/{{ image_prefix }}neutron-server:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+# This image inherits from neutron-server image, which is also a leaf image,
+# and therefore sets the user to neutron. Set the user to root, so that any
+# headers or footers used have the right context.
+USER root
+
+{% block neutron_server_plugin_networking_aci_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{% block neutron_server_plugin_networking_aci_install %}
+ADD neutron-server-plugin-networking-aci-plugin-apicapi-archive /apicapi-source
+ADD neutron-server-plugin-networking-aci-plugin-acitoolkit-archive /acitoolkit-source
+ADD neutron-server-plugin-networking-aci-archive /networking-aci-source
+
+RUN ln -s /apicapi-source/* /apicapi \
+    && ln -s /acitoolkit-source/* /acitoolkit \
+    && ln -s /networking-aci-source/* /networking-aci \
+    && {{ macros.install_pip(['/apicapi']) }} \
+    && {{ macros.install_pip(['/acitoolkit']) }} \
+    && {{ macros.install_pip(['/networking-aci']) }}
+
+RUN pip install --no-cache-dir group-based-policy
+
+ADD neutron-server-plugin-networking-aci-plugin-opflex-agent-archive /opflex-agent-source
+RUN ln -s /opflex-agent-source/* /opflex-agent \
+    && {{ macros.install_pip(['/opflex-agent']) }}
+
+ADD neutron-server-plugin-networking-aci-plugin-gbpclient-archive /gbpclient-source
+RUN ln -s /gbpclient-source/* /gbpclient \
+    && {{ macros.install_pip(['/gbpclient']) }}
+{% endblock %}
+
+RUN find /var/lib/kolla/venv/lib -path '*/aim/db/migration/alembic_migrations/env.py' \
+    -exec sed -i -e '/run_migrations_online/,${ /context\.run_migrations()/a\        connection.commit()' -e '}' {} +
+
+{{ macros.kolla_patch_sources() }}
+
+{% block neutron_server_plugin_networking_aci_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER neutron

@@ -44,7 +44,7 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'git',
         'libapache2-mod-wsgi-py3',
         'libffi-dev',
-        'libpcre3-dev',
+        'libpcre2-dev',
         'libpq-dev',
         'libssl-dev',
         'libxml2-dev',
@@ -57,10 +57,13 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'uwsgi-plugin-python3',
         'zip'
     ] %}
-
 {% endif %}
 
 {{ macros.install_packages(openstack_base_packages | customizable("packages")) }}
+
+{% if base_arch == 'ppc64le' %}
+ENV PIP_EXTRA_INDEX_URL=https://77997.github.io/kolla/ppc64le/simple/
+{% endif %}
 
 {% set openstack_base_pip_packages = [
         'Babel',
@@ -206,7 +209,8 @@ RUN ln -s openstack-base-source/* /requirements \
    upper_constraints_version_change(package_name, from, to) at this location will
    apply to all services.
 #}
-{% block openstack_base_override_upper_constraints %}{% endblock %}
+{% block openstack_base_override_upper_constraints %}
+{% endblock %}
 
 ENV PATH /var/lib/kolla/venv/bin:$PATH
 

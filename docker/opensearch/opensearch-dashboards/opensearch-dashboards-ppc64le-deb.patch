@@ -1,0 +1,141 @@
+--- a/src/dev/build/lib/platform.ts
++++ b/src/dev/build/lib/platform.ts
+@@ -33,6 +33,6 @@
+ 
+ export type PlatformName = 'win32' | 'darwin' | 'linux';
+-export type PlatformArchitecture = 'x64' | 'arm64';
++export type PlatformArchitecture = 'x64' | 'arm64' | 'ppc64le';
+ 
+ export interface TargetPlatforms {
+   darwin: boolean;
+@@ -41,6 +41,7 @@ export interface TargetPlatforms {
+   linuxArm: boolean;
+   linux: boolean;
+   windows: boolean;
++  linuxPpc64le: boolean;
+ }
+ 
+ export class Platform {
+@@ -78,4 +79,5 @@ export const ALL_PLATFORMS = [
+   new Platform('darwin', 'x64', 'darwin-x64'),
+   new Platform('darwin', 'arm64', 'darwin-arm64'),
+   new Platform('win32', 'x64', 'windows-x64'),
++  new Platform('linux', 'ppc64le', 'linux-ppc64le'),
+ ];
+--- a/src/dev/build/lib/config.ts
++++ b/src/dev/build/lib/config.ts
+@@ -146,6 +146,7 @@ export class Config {
+     if (this.targetPlatforms.linux) platforms.push(this.getPlatform('linux', 'x64'));
+     if (this.targetPlatforms.linuxArm) platforms.push(this.getPlatform('linux', 'arm64'));
+     if (this.targetPlatforms.windows) platforms.push(this.getPlatform('win32', 'x64'));
++    if (this.targetPlatforms.linuxPpc64le) platforms.push(this.getPlatform('linux', 'ppc64le'));
+ 
+     if (platforms.length > 0) return platforms;
+ 
+--- a/src/dev/build/args.ts
++++ b/src/dev/build/args.ts
+@@ -50,6 +50,8 @@ export function readCliArgs(argv: string[]) {
+       'deb',
+       'deb-arm',
+       'docker',
++      'deb-ppc64le',
++      'linux-ppc64le',
+       'skip-docker-ubi',
+       'release',
+       'skip-node-download',
+@@ -72,6 +74,7 @@ export function readCliArgs(argv: string[]) {
+       rpm: null,
+       'rpm-arm': null,
+       deb: null,
++      'deb-ppc64le': null,
+       'deb-arm': null,
+       docker: null,
+       'version-qualifier': '',
+@@ -102,6 +105,7 @@ export function readCliArgs(argv: string[]) {
+       flags.deb === null &&
+       flags['deb-arm'] === null &&
+       flags.docker === null
++      && flags['deb-ppc64le'] === null
+     ) {
+       return true;
+     }
+@@ -115,6 +119,7 @@ export function readCliArgs(argv: string[]) {
+     createDebPackage: isOsPackageDesired('deb'),
+     createDebArmPackage: isOsPackageDesired('deb-arm'),
+     createDockerPackage: isOsPackageDesired('docker'),
++    createDebPpc64lePackage: isOsPackageDesired('deb-ppc64le'),
+     createDockerUbiPackage: isOsPackageDesired('docker') && !Boolean(flags['skip-docker-ubi']),
+     targetPlatforms: {
+       windows: Boolean(flags.windows),
+@@ -122,6 +127,7 @@ export function readCliArgs(argv: string[]) {
+       darwinArm: Boolean(flags['darwin-arm']),
+       linux: Boolean(flags.linux),
+       linuxArm: Boolean(flags['linux-arm']),
++      linuxPpc64le: Boolean(flags['linux-ppc64le']),
+     },
+     targetAllPlatforms: Boolean(flags['all-platforms']),
+     withTranslations: Boolean(flags['with-translations']),
+--- a/src/dev/build/build_distributables.ts
++++ b/src/dev/build/build_distributables.ts
+@@ -43,6 +43,7 @@ export interface BuildOptions {
+   createDebPackage: boolean;
+   createDebArmPackage: boolean;
+   createDockerPackage: boolean;
++  createDebPpc64lePackage: boolean;
+   createDockerUbiPackage: boolean;
+   versionQualifier: string | undefined;
+   targetAllPlatforms: boolean;
+@@ -112,6 +113,10 @@ export async function buildDistributables(log: ToolingLog, options: BuildOptions)
+     // control w/ --deb-arm or --skip-os-packages
+     await run(Tasks.CreateDebArmPackage);
+   }
++  if (options.createDebPpc64lePackage) {
++    // control w/ --deb-ppc64le or --skip-os-packages
++    await run(Tasks.CreateDebPpc64lePackage);
++  }
+   if (options.createRpmPackage) {
+     // control w/ --rpm or --skip-os-packages
+     await run(Tasks.CreateRpmPackage);
+--- a/src/dev/build/tasks/os_packages/create_os_package_tasks.ts
++++ b/src/dev/build/tasks/os_packages/create_os_package_tasks.ts
+@@ -53,6 +53,19 @@ export const CreateDebArmPackage: Task = {
+   },
+ };
+ 
++export const CreateDebPpc64lePackage: Task = {
++  description: 'Creating deb-ppc64le package',
++
++  async run(config, log, build) {
++    await runFpm(config, log, build, 'deb', 'ppc64le', [
++      '--architecture',
++      'ppc64el',
++      '--deb-priority',
++      'optional',
++    ]);
++  },
++};
++
+ export const CreateRpmPackage: Task = {
+   description: 'Creating rpm package',
+ 
+--- a/src/dev/build/tasks/os_packages/run_fpm.ts
++++ b/src/dev/build/tasks/os_packages/run_fpm.ts
+@@ -38,12 +38,14 @@ export async function runFpm(
+   config: Config,
+   log: ToolingLog,
+   build: Build,
+   type: 'rpm' | 'deb',
+-  arch: 'x64' | 'arm64',
++  arch: 'x64' | 'arm64' | 'ppc64le',
+   pkgSpecificFlags: string[]
+ ) {
+   const linux = config.getPlatform('linux', arch);
+   const version = config.getBuildVersion();
+   const fileName = config.resolveFromTarget(
+-    arch === 'arm64' ? `NAME-${version}-arm64.${type}` : `NAME-${version}-ARCH.TYPE`
++    arch === 'arm64' ? `NAME-${version}-arm64.${type}` :
++    arch === 'ppc64le' ? `NAME-${version}-ppc64le.${type}` :
++    `NAME-${version}-ARCH.TYPE`
+   );
+ 
+   const resolveWithTrailingSlash = (...paths: string[]) => `${resolve(...paths)}/`;

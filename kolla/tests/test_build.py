@@ -645,6 +645,67 @@ class KollaWorkerTest(base.TestCase):
         self.assertEqual(utils.Status.SKIPPED, kolla.images[2].parent.status)
         self.assertEqual(utils.Status.SKIPPED, kolla.images[1].parent.status)
 
+    def test_skip_ancestors(self):
+        self.conf.set_override('regex', ['image-child'])
+        self.conf.set_override('skip_ancestors', True)
+        kolla = build.KollaWorker(self.conf)
+        kolla.images = self.images[:2]
+        for i in kolla.images:
+            i.status = utils.Status.UNPROCESSED
+            if i.parent:
+                i.parent.children.append(i)
+        kolla.filter_images()
+
+        self.assertEqual(utils.Status.MATCHED, kolla.images[1].status)
+        self.assertEqual(utils.Status.SKIPPED, kolla.images[0].status)
+
+    def test_skip_ancestors_regex(self):
+        self.conf.set_override('regex', ['^image-child$'])
+        self.conf.set_override('skip_ancestors', True)
+        kolla = build.KollaWorker(self.conf)
+        kolla.images = self.images[:2]
+        for i in kolla.images:
+            i.status = utils.Status.UNPROCESSED
+            if i.parent:
+                i.parent.children.append(i)
+        kolla.filter_images()
+
+        self.assertEqual(utils.Status.MATCHED, kolla.images[1].status)
+        self.assertEqual(utils.Status.SKIPPED, kolla.images[0].status)
+
+    def test_skip_ancestors_grandchild(self):
+        self.conf.set_override('regex', ['image-grandchild'])
+        self.conf.set_override('skip_ancestors', True)
+        kolla = build.KollaWorker(self.conf)
+        image_grandchild = FAKE_IMAGE_GRANDCHILD.copy()
+        image_grandchild.parent = self.images[1]
+        self.images[1].children.append(image_grandchild)
+        kolla.images = self.images[:2] + [image_grandchild]
+        for i in kolla.images:
+            i.status = utils.Status.UNPROCESSED
+            if i.parent:
+                i.parent.children.append(i)
+        kolla.filter_images()
+
+        self.assertEqual(utils.Status.MATCHED, kolla.images[2].status)
+        self.assertEqual(utils.Status.SKIPPED, kolla.images[1].status)
+        self.assertEqual(utils.Status.SKIPPED, kolla.images[0].status)
+
+    def test_skip_ancestors_child_before_parent(self):
+        """Verify --skip-ancestors works when os.walk returns child first."""
+        self.conf.set_override('regex', ['^image-child$'])
+        self.conf.set_override('skip_ancestors', True)
+        kolla = build.KollaWorker(self.conf)
+        kolla.images = list(reversed(self.images[:2]))
+        for i in kolla.images:
+            i.status = utils.Status.UNPROCESSED
+            if i.parent:
+                i.parent.children.append(i)
+        kolla.filter_images()
+
+        self.assertEqual(utils.Status.MATCHED, kolla.images[0].status)
+        self.assertEqual(utils.Status.SKIPPED, kolla.images[1].status)
+
     @mock.patch.object(Image, 'in_engine_cache')
     def test_skip_existing(self, mock_in_cache):
         mock_in_cache.side_effect = [True, False]
