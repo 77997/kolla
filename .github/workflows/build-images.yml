@@ -1,0 +1,265 @@
+name: Build Kolla Images
+
+on:
+  push:
+    branches:
+      - master
+      - 'stable/*'
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Specific images to build (comma-separated, empty for all)'
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: 77997/kolla
+  OPENSTACK_RELEASE: '2025.2'
+  BASE_DISTRO: debian
+  BASE_DISTRO_VERSION: trixie
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      layer-0: ${{ steps.parse.outputs.layer-0 }}
+      layer-1: ${{ steps.parse.outputs.layer-1 }}
+      layer-2: ${{ steps.parse.outputs.layer-2 }}
+      layer-3: ${{ steps.parse.outputs.layer-3 }}
+      layer-4: ${{ steps.parse.outputs.layer-4 }}
+      layer-5: ${{ steps.parse.outputs.layer-5 }}
+      layer-6: ${{ steps.parse.outputs.layer-6 }}
+      layer-7: ${{ steps.parse.outputs.layer-7 }}
+      layer-8: ${{ steps.parse.outputs.layer-8 }}
+      layer-9: ${{ steps.parse.outputs.layer-9 }}
+      leaf-matrix: ${{ steps.parse.outputs.leaf-matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install kolla
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Discover image tree
+        id: parse
+        run: |
+          python -m kolla.cmd.build \
+            --base ${{ env.BASE_DISTRO }} --base-arch x86_64 \
+            --list-dependencies > deps.json
+
+          python3 << 'PYEOF'
+          import json, os
+
+          MAX_LAYERS = 10
+
+          with open('deps.json') as f:
+              tree = json.load(f)
+
+          parent_map = {}
+          all_parents = set()
+
+          def walk(node, parent_name=None):
+              if isinstance(node, dict):
+                  for key, children in node.items():
+                      parent_map[key] = parent_name
+                      all_parents.add(key)
+                      for child in children:
+                          walk(child, key)
+
+          walk(tree)
+
+          all_leaves = set()
+
+          def find_leaves(node):
+              if isinstance(node, str):
+                  all_leaves.add(node)
+              elif isinstance(node, dict):
+                  for children in node.values():
+                      for child in children:
+                          find_leaves(child)
+              elif isinstance(node, list):
+                  for child in node:
+                      find_leaves(child)
+
+          find_leaves(tree)
+
+          def get_depth(name):
+              depth, cur = 0, name
+              while parent_map.get(cur):
+                  depth += 1
+                  cur = parent_map[cur]
+              return depth
+
+          layers = {}
+          for d in range(MAX_LAYERS):
+              images = sorted(p for p in all_parents if get_depth(p) == d)
+              layers[d] = {"include": [{"image": p} for p in images]}
+
+          leaves = sorted(all_leaves)
+          leaf_matrix = {"include": [{"image": l} for l in leaves]}
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for d in range(MAX_LAYERS):
+                  if layers[d]["include"]:
+                      out.write(f"layer-{d}<<EOF\n")
+                      out.write(json.dumps(layers[d]) + "\n")
+                      out.write("EOF\n")
+                  else:
+                      out.write(f"layer-{d}=skip\n")
+              out.write("leaf-matrix<<EOF\n")
+              out.write(json.dumps(leaf_matrix) + "\n")
+              out.write("EOF\n")
+
+          for d in range(MAX_LAYERS):
+              names = [e["image"] for e in layers[d]["include"]]
+              if names:
+                  print(f"Layer {d} ({len(names)}): {', '.join(names)}")
+          print(f"Leaves  ({len(leaves)})")
+          PYEOF
+
+  build-amd64:
+    needs: discover
+    uses: ./.github/workflows/_build-arch.yml
+    with:
+      arch: x86_64
+      platform: linux/amd64
+      tag-suffix: amd64
+      layer-0: ${{ needs.discover.outputs.layer-0 }}
+      layer-1: ${{ needs.discover.outputs.layer-1 }}
+      layer-2: ${{ needs.discover.outputs.layer-2 }}
+      layer-3: ${{ needs.discover.outputs.layer-3 }}
+      layer-4: ${{ needs.discover.outputs.layer-4 }}
+      layer-5: ${{ needs.discover.outputs.layer-5 }}
+      layer-6: ${{ needs.discover.outputs.layer-6 }}
+      layer-7: ${{ needs.discover.outputs.layer-7 }}
+      layer-8: ${{ needs.discover.outputs.layer-8 }}
+      layer-9: ${{ needs.discover.outputs.layer-9 }}
+      leaf-matrix: ${{ needs.discover.outputs.leaf-matrix }}
+      images-override: ${{ github.event.inputs.images || '' }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
+  build-ppc64le:
+    needs: discover
+    uses: ./.github/workflows/_build-arch.yml
+    with:
+      arch: ppc64le
+      platform: linux/ppc64le
+      tag-suffix: ppc64le
+      layer-0: ${{ needs.discover.outputs.layer-0 }}
+      layer-1: ${{ needs.discover.outputs.layer-1 }}
+      layer-2: ${{ needs.discover.outputs.layer-2 }}
+      layer-3: ${{ needs.discover.outputs.layer-3 }}
+      layer-4: ${{ needs.discover.outputs.layer-4 }}
+      layer-5: ${{ needs.discover.outputs.layer-5 }}
+      layer-6: ${{ needs.discover.outputs.layer-6 }}
+      layer-7: ${{ needs.discover.outputs.layer-7 }}
+      layer-8: ${{ needs.discover.outputs.layer-8 }}
+      layer-9: ${{ needs.discover.outputs.layer-9 }}
+      leaf-matrix: ${{ needs.discover.outputs.leaf-matrix }}
+      images-override: ${{ github.event.inputs.images || '' }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
+  create-manifests:
+    needs: [build-amd64, build-ppc64le]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download build summaries
+        uses: actions/download-artifact@v7
+        with:
+          pattern: summary-*
+          path: summaries
+
+      - name: Create multi-arch manifests
+        run: |
+          set -euo pipefail
+
+          AMD64_LEAVES=$(find summaries -path '*/summary-*-amd64/summary.json' \
+            ! -path '*-parent/*' \
+            2>/dev/null)
+          PPC64LE_LEAVES=$(find summaries -path '*/summary-*-ppc64le/summary.json' \
+            ! -path '*-parent/*' \
+            2>/dev/null)
+
+          AMD64_IMAGES=$(jq -r '.built[]?.name' $AMD64_LEAVES 2>/dev/null | sort -u || echo "")
+          PPC64LE_IMAGES=$(jq -r '.built[]?.name' $PPC64LE_LEAVES 2>/dev/null | sort -u || echo "")
+
+          if [ -z "$AMD64_IMAGES" ] || [ -z "$PPC64LE_IMAGES" ]; then
+            echo "WARNING: Missing images for one or both architectures"
+            echo "  amd64 images: $(echo "$AMD64_IMAGES" | wc -w)"
+            echo "  ppc64le images: $(echo "$PPC64LE_IMAGES" | wc -w)"
+            if [ -z "$AMD64_IMAGES" ] && [ -z "$PPC64LE_IMAGES" ]; then
+              echo "ERROR: No images found for either architecture"
+              exit 1
+            fi
+          fi
+
+          COMMON_IMAGES=$(comm -12 <(echo "$AMD64_IMAGES") <(echo "$PPC64LE_IMAGES"))
+
+          if [ -z "$COMMON_IMAGES" ]; then
+            echo "WARNING: No common images found across architectures"
+            exit 0
+          fi
+
+          TOTAL=$(echo "$COMMON_IMAGES" | wc -l)
+          echo "Creating manifests for $TOTAL images..."
+
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          CREATED=0
+          FAILED=0
+          for IMAGE_NAME in $COMMON_IMAGES; do
+            FULL_AMD64="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${TAG}-amd64"
+            FULL_PPC64LE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${TAG}-ppc64le"
+            FULL_MANIFEST="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${IMAGE_NAME}:${TAG}"
+
+            echo "[$((CREATED + FAILED + 1))/$TOTAL] $IMAGE_NAME"
+
+            docker manifest rm "$FULL_MANIFEST" 2>/dev/null || true
+
+            if docker manifest create "$FULL_MANIFEST" "$FULL_AMD64" "$FULL_PPC64LE"; then
+              if docker manifest push "$FULL_MANIFEST"; then
+                CREATED=$((CREATED + 1))
+              else
+                echo "  ERROR: Failed to push manifest for $IMAGE_NAME"
+                FAILED=$((FAILED + 1))
+              fi
+            else
+              echo "  ERROR: Failed to create manifest for $IMAGE_NAME"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          echo ""
+          echo "Summary: $CREATED created, $FAILED failed out of $TOTAL"
+          if [ "$FAILED" -gt 0 ]; then
+            exit 1
+          fi

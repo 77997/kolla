@@ -1,0 +1,762 @@
+name: Build Images for Architecture
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        required: true
+      platform:
+        type: string
+        required: true
+      tag-suffix:
+        type: string
+        required: true
+      layer-0:
+        type: string
+        required: true
+      layer-1:
+        type: string
+        required: true
+      layer-2:
+        type: string
+        required: true
+      layer-3:
+        type: string
+        default: 'skip'
+      layer-4:
+        type: string
+        default: 'skip'
+      layer-5:
+        type: string
+        default: 'skip'
+      layer-6:
+        type: string
+        default: 'skip'
+      layer-7:
+        type: string
+        default: 'skip'
+      layer-8:
+        type: string
+        default: 'skip'
+      layer-9:
+        type: string
+        default: 'skip'
+      leaf-matrix:
+        type: string
+        required: true
+      images-override:
+        type: string
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: 77997/kolla
+  OPENSTACK_RELEASE: '2025.2'
+  BASE_DISTRO: debian
+  BASE_DISTRO_VERSION: trixie
+
+jobs:
+  layer-0:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-0) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-1:
+    needs: layer-0
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-1) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-2:
+    needs: layer-1
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-2) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-3:
+    needs: layer-2
+    if: ${{ inputs.layer-3 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-3) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-4:
+    needs: layer-3
+    if: ${{ inputs.layer-4 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-4) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-5:
+    needs: layer-4
+    if: ${{ inputs.layer-5 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-5) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-6:
+    needs: layer-5
+    if: ${{ inputs.layer-6 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-6) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-7:
+    needs: layer-6
+    if: ${{ inputs.layer-7 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-7) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-8:
+    needs: layer-7
+    if: ${{ inputs.layer-8 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-8) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  layer-9:
+    needs: layer-8
+    if: ${{ inputs.layer-9 != 'skip' && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.layer-9) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}-parent
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  build-leaf:
+    needs: layer-9
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.leaf-matrix) }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install docker
+
+      - name: Set up QEMU for multi-arch builds
+        if: inputs.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ inputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.image }}
+        run: |
+          TAG="${{ env.OPENSTACK_RELEASE }}-${{ env.BASE_DISTRO }}-${{ env.BASE_DISTRO_VERSION }}"
+          BUILD_ARGS="--base ${{ env.BASE_DISTRO }} --base-arch ${{ inputs.arch }} --tag ${TAG}-${{ inputs.tag-suffix }}"
+          BUILD_ARGS="$BUILD_ARGS --namespace ${{ env.REGISTRY }}/${{ env.NAMESPACE }}"
+          BUILD_ARGS="$BUILD_ARGS --push --threads 1"
+          if [ "${{ inputs.arch }}" != "x86_64" ]; then
+            BUILD_ARGS="$BUILD_ARGS --platform ${{ inputs.platform }}"
+          fi
+          BUILD_ARGS="$BUILD_ARGS --summary-json-file ${{ github.workspace }}/summary.json"
+
+          if [ -n "${{ inputs.images-override }}" ]; then
+            python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors ${{ inputs.images-override }}
+          else
+            python -m kolla.cmd.build $BUILD_ARGS --skip-ancestors "^${{ matrix.image }}$"
+          fi
+
+      - name: Upload build summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: summary-${{ matrix.image }}-${{ inputs.tag-suffix }}
+          path: summary.json
+          retention-days: 1
+          if-no-files-found: warn

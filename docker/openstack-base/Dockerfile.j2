@@ -44,7 +44,7 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'git',
         'libapache2-mod-wsgi-py3',
         'libffi-dev',
-        'libpcre3-dev',
+        'libpcre2-dev',
         'libpq-dev',
         'libssl-dev',
         'libxml2-dev',
@@ -57,10 +57,16 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'uwsgi-plugin-python3',
         'zip'
     ] %}
-
 {% endif %}
 
 {{ macros.install_packages(openstack_base_packages | customizable("packages")) }}
+
+{# ppc64le wheel index for pre-built binary wheels (numpy, cryptography, ...) that
+   are too slow to compile under QEMU. Pure-python fork packages (AIM/GBP) are
+   installed from git source instead, so this is only needed on ppc64le. #}
+{% if base_arch == 'ppc64le' %}
+ENV PIP_EXTRA_INDEX_URL=https://77997.github.io/kolla/ppc64le/simple/
+{% endif %}
 
 {% set openstack_base_pip_packages = [
         'Babel',
@@ -206,7 +212,16 @@ RUN ln -s openstack-base-source/* /requirements \
    upper_constraints_version_change(package_name, from, to) at this location will
    apply to all services.
 #}
-{% block openstack_base_override_upper_constraints %}{% endblock %}
+{% block openstack_base_override_upper_constraints %}
+{# ppc64le: magnum-cluster-api ships no PyPI ppc64le wheel, so the unpinned upstream
+   install would compile its Rust extension from sdist under QEMU. Pin it to the
+   version we cross-build into the fork index so pip uses that wheel. amd64 stays
+   unpinned (upstream behaviour). Keep in sync with MAGNUM_CLUSTER_API_VERSION in
+   .github/workflows/publish-ppc64le-deps.yml. #}
+{% if base_arch == 'ppc64le' %}
+RUN echo 'magnum-cluster-api===0.37.0' >> requirements/upper-constraints.txt
+{% endif %}
+{% endblock %}
 
 ENV PATH /var/lib/kolla/venv/bin:$PATH
 
