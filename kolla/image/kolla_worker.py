@@ -484,7 +484,8 @@ class KollaWorker(object):
                 # as we now list not buildable/skipped images we need to
                 # process them otherwise list will contain also not requested
                 # entries
-                if image.status in (Status.MATCHED, Status.UNBUILDABLE):
+                if image.status in (Status.MATCHED, Status.UNBUILDABLE,
+                                    Status.SKIPPED):
                     continue
                 if re.search(patterns, image.name):
                     image.status = Status.MATCHED
@@ -493,8 +494,10 @@ class KollaWorker(object):
                     while (ancestor_image.parent is not None and
                            ancestor_image.parent.status != Status.MATCHED):
                         ancestor_image = ancestor_image.parent
-                        # Parents of a buildable image must also be buildable.
-                        ancestor_image.status = Status.MATCHED
+                        if self.conf.skip_ancestors:
+                            ancestor_image.status = Status.SKIPPED
+                        else:
+                            ancestor_image.status = Status.MATCHED
                     LOG.debug('Image %s matched regex', image.name)
                 else:
                     image.status = Status.UNMATCHED
@@ -669,11 +672,20 @@ class KollaWorker(object):
             else:
                 installation['type'] = self.conf[section]['type']
                 installation['source'] = self.conf[section]['location']
+                location_override = self.conf[section]['location_override']
+                using_override = (location_override and
+                                  self.conf.debian_arch in location_override)
+                if using_override:
+                    installation['source'] = \
+                        location_override[self.conf.debian_arch]
                 installation['name'] = section
                 if installation['type'] == 'git':
                     installation['reference'] = self.conf[section]['reference']
                 installation['enabled'] = self.conf[section]['enabled']
-                installation['sha256'] = self.conf[section]['sha256']
+                if using_override:
+                    installation['sha256'] = None
+                else:
+                    installation['sha256'] = self.conf[section]['sha256']
             return installation
 
         all_sections = (set(self.conf._groups.keys()) |
