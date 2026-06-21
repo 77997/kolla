@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kolla ppc64le dependency repository</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0;
+    --code-bg: #f6f8fa; --accent: #0969da; --warn-bg: #fff8c5; --warn-line: #d4a72c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d;
+      --code-bg: #151b23; --accent: #4493f8; --warn-bg: #282215; --warn-line: #9e6a03;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 5rem;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 52rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 {
+    font-size: 1.3rem; margin: 2.75rem 0 .85rem; padding-bottom: .35rem;
+    border-bottom: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.02rem; margin: 1.75rem 0 .5rem; }
+  p, li { color: var(--fg); }
+  .lede { color: var(--muted); margin: 0 0 2rem; }
+  a { color: var(--accent); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .875em; background: var(--code-bg); padding: .15em .35em;
+    border-radius: 4px; border: 1px solid var(--line);
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .85rem 1rem; overflow-x: auto; margin: 0 0 1rem;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: .82rem; line-height: 1.55; }
+  .meta { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 0 0 1.5rem; }
+  .meta dt { color: var(--muted); font-size: .85rem; }
+  .meta dd { margin: 0; font-size: .85rem; word-break: break-all; }
+  .meta dd code { font-size: .95em; }
+  .note {
+    background: var(--warn-bg); border-left: 3px solid var(--warn-line);
+    padding: .7rem 1rem; margin: 1.25rem 0; border-radius: 0 4px 4px 0; font-size: .92rem;
+  }
+  .note p { margin: 0; }
+  .note p + p { margin-top: .6rem; }
+  .scroll { overflow-x: auto; margin-bottom: 1rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th, td { text-align: left; padding: .45rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td.v { white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .95em; }
+  td.sz { white-space: nowrap; text-align: right; color: var(--muted); }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: .85rem;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Kolla ppc64le dependency repository</h1>
+<p class="lede">
+  Debian <code>ppc64el</code> packages, Python wheels and static binaries that Debian and PyPI
+  do not publish for POWER, rebuilt from source by CI and served straight off GitHub Pages.
+</p>
+
+<dl class="meta">
+  <dt>APT repository</dt><dd><code>https://77997.github.io/kolla/ppc64le/apt</code> &nbsp;(flat, suite <code>./</code>)</dd>
+  <dt>Wheel index</dt><dd><code>https://77997.github.io/kolla/ppc64le/simple/</code></dd>
+  <dt>Tarballs</dt><dd><a href="tarballs/">https://77997.github.io/kolla/ppc64le/tarballs/</a></dd>
+  <dt>Signing key</dt><dd><a href="repo-key.asc">repo-key.asc</a> &mdash; <code><!--FINGERPRINT--></code></dd>
+  <dt>Last published</dt><dd><!--BUILT--></dd>
+</dl>
+
+<h2>Add the APT repository</h2>
+
+<p>Debian 13 (trixie) or newer, on a <code>ppc64el</code> host. Install the signing key:</p>
+
+<pre><code>sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL https://77997.github.io/kolla/ppc64le/repo-key.asc \
+     -o /etc/apt/keyrings/kolla-ppc64le.asc</code></pre>
+
+<p>Then declare the source. It is a flat repository, so the suite is <code>./</code> and there is no component:</p>
+
+<pre><code>sudo tee /etc/apt/sources.list.d/kolla-ppc64le.sources &gt;/dev/null &lt;&lt;'EOF'
+Types: deb
+URIs: https://77997.github.io/kolla/ppc64le/apt
+Suites: ./
+Architectures: ppc64el
+Signed-By: /etc/apt/keyrings/kolla-ppc64le.asc
+EOF</code></pre>
+
+<p>
+  The repository also carries Grafana, OpenSearch, ProxySQL and fluent-package for the Kolla
+  container images. On a general-purpose host you usually want only the packages you asked for,
+  so pin the rest out of consideration:
+</p>
+
+<pre><code>sudo tee /etc/apt/preferences.d/kolla-ppc64le &gt;/dev/null &lt;&lt;'EOF'
+Package: *
+Pin: origin 77997.github.io
+Pin-Priority: -1
+
+Package: src rsct.* devices.chrp.base.servicerm dynamicrm
+Pin: origin 77997.github.io
+Pin-Priority: 500
+EOF</code></pre>
+
+<pre><code>sudo apt-get update</code></pre>
+
+<h2>Install RMC (RSCT) on a Debian guest</h2>
+
+<p>
+  Resource Monitoring and Control is what lets an HMC or NovaLink drive DLPAR operations,
+  Live Partition Mobility and serviceable events against a Linux LPAR. IBM ships RSCT for
+  Ubuntu only; these packages are the same IBM sources rebuilt against Debian.
+</p>
+
+<div class="note">
+  <p>
+    <strong>This only applies to a PowerVM LPAR managed by an HMC or NovaLink.</strong>
+    A KVM guest on PowerNV &mdash; including an OpenStack instance &mdash; has no HMC to
+    register with, and does not need RSCT.
+  </p>
+</div>
+
+<pre><code>sudo apt-get install -y \
+    src rsct.core.utils rsct.core rsct.basic rsct.opt.storagerm \
+    devices.chrp.base.servicerm dynamicrm \
+    powerpc-ibm-utils</code></pre>
+
+<p>
+  APT resolves the install order itself. Every dependency &mdash; <code>mksh</code>,
+  <code>perl-base</code>, <code>openssl</code>, <code>librtas2</code>,
+  <code>libservicelog-1.1-1</code>, <code>bc</code> &mdash; comes from Debian
+  <code>main</code>. <code>powerpc-ibm-utils</code> is not an RSCT dependency but provides
+  <code>drmgr</code>, which is what actually applies a DLPAR add or remove once RMC has
+  delivered it.
+</p>
+
+<h3>Enable and verify</h3>
+
+<pre><code>sudo /usr/sbin/rsct/bin/rmcctrl -p
+sudo /usr/sbin/rsct/bin/lssrc -a</code></pre>
+
+<p>
+  You want <code>ctrmc</code> active, alongside <code>IBM.DRM</code>,
+  <code>IBM.ServiceRM</code>, <code>IBM.HostRM</code> and <code>IBM.MgmtDomainRM</code>.
+  From the HMC, <code>lspartition -dlpar</code> should then list the partition with
+  <code>Active:&lt;1&gt;</code>.
+</p>
+
+<h3>If RMC does not come up</h3>
+
+<p>Three causes account for nearly all of it:</p>
+
+<ol>
+  <li>
+    <strong>The guest was cloned from an image.</strong> Every guest built from one template
+    inherits a single node ID in <code>/var/ct/cfg/ct_node_id</code>, and the HMC will only
+    ever see one of them as active. Regenerate it per guest &mdash; at first boot, not at
+    image build time:
+    <pre style="margin-top:.6rem"><code>sudo /usr/sbin/rsct/install/bin/recfgct
+sudo /usr/sbin/rsct/bin/rmcctrl -z
+sudo /usr/sbin/rsct/bin/rmcctrl -A
+sudo /usr/sbin/rsct/bin/rmcctrl -p</code></pre>
+  </li>
+  <li><strong>Port 657 is blocked.</strong> RMC needs TCP <em>and</em> UDP 657 open in both directions between HMC and LPAR.</li>
+  <li><strong>The hostname does not resolve.</strong> RMC registers under the partition's own hostname; it must resolve to the LPAR's address in <code>/etc/hosts</code>.</li>
+</ol>
+
+<h2>Python wheel index</h2>
+
+<p>
+  A PEP 503 index of <code>ppc64le</code> wheels for packages that publish no POWER build on
+  PyPI. Point pip at it as an extra index &mdash; PyPI still wins wherever it has a matching
+  wheel:
+</p>
+
+<pre><code>pip install --extra-index-url https://77997.github.io/kolla/ppc64le/simple/ &lt;package&gt;</code></pre>
+
+<p>Browse the full list at <a href="simple/">/ppc64le/simple/</a>.</p>
+
+<h2>Static binaries</h2>
+
+<p>
+  <a href="tarballs/">/ppc64le/tarballs/</a> holds ppc64le builds of OpFlex, lego, cAdvisor,
+  mtail and the Prometheus exporters, as plain tarballs for the image builds to unpack.
+</p>
+
+<h2>Packages in the APT repository</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Package</th><th>Version</th><th>Description</th><th>Size</th></tr></thead>
+  <tbody>
+<!--PACKAGE_TABLE-->
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p>
+    Rebuilt and republished by the <code>publish-ppc64le-deps</code> workflow in
+    <a href="https://github.com/77997/kolla">77997/kolla</a>. Package versions here track that
+    workflow's last run &mdash; this page is regenerated from the repository index on every publish.
+  </p>
+</footer>
+
+</main>
+</body>
+</html>

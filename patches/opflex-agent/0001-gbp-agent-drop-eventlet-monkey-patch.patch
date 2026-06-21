@@ -1,0 +1,39 @@
+Subject: [PATCH] gbp_agent: drop eventlet monkey-patch for OpenStack 2026.1
+
+neutron removed eventlet in the 2026.1 cycle. Both the
+``neutron.common.eventlet_utils`` module and the whole
+``neutron/cmd/eventlet/`` package (whose ``__init__.py`` contained exactly
+these two statements) were deleted, so the import at the top of
+gbp_agent.py aborts neutron-opflex-agent at startup with:
+
+    ImportError: cannot import name 'eventlet_utils' from 'neutron.common'
+
+``eventlet_utils.monkey_patch()`` was a pure side-effecting call (it ran
+``eventlet.monkey_patch()`` plus a pyroute2 asyncio fixup and returned
+None); ``eventlet_utils`` is not referenced anywhere else in this file, so
+removing both lines is sufficient and complete.
+
+Re-adding a bare ``import eventlet; eventlet.monkey_patch()`` would be
+wrong: neutron 2026.1 is designed to run un-patched on native threads, and
+neutron's own OVS agent entry point -- the class GBPOpflexAgent subclasses
+-- no longer monkey-patches at all.
+
+Applied against the installed copy in the venv, because the opflex-agent
+Dockerfile runs kolla_patch after `pip install /opflex-agent`.
+Path uses the version-independent `python3` symlink created in
+docker/openstack-base/Dockerfile.j2.
+
+--- var/lib/kolla/venv/lib/python3/site-packages/opflexagent/gbp_agent.py
++++ var/lib/kolla/venv/lib/python3/site-packages/opflexagent/gbp_agent.py
+@@ -15,11 +15,6 @@
+ import sys
+ import time
+
+-# We need to ensure that the monkey-patch gets applied
+-# before other packages that use eventlet get imported
+-from neutron.common import eventlet_utils  # noqa
+-eventlet_utils.monkey_patch()  # noqa
+-
+ from neutron.agent.common import ip_lib
+ from neutron.agent.common import polling
+ from neutron.agent import rpc as agent_rpc

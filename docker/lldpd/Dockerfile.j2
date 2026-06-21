@@ -1,0 +1,29 @@
+FROM {{ namespace }}/{{ image_prefix }}base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+{% block lldpd_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{% if base_package_type == 'rpm' %}
+    {% set lldpd_packages = [
+        'lldpd'
+    ] %}
+{% elif base_package_type == 'deb' %}
+    {% set lldpd_packages = [
+        'lldpd'
+    ] %}
+{% endif %}
+
+{{ macros.install_packages(lldpd_packages | customizable("packages")) }}
+
+{% block lldpd_install %}
+RUN mkdir -p /var/run/lldpd
+{% endblock %}
+
+{{ macros.kolla_patch_sources() }}
+
+{% block lldpd_footer %}{% endblock %}
+{% block footer %}{% endblock %}

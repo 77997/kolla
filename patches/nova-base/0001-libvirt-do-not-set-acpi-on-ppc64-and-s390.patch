@@ -1,0 +1,49 @@
+Subject: [PATCH] libvirt: do not request ACPI on ppc64 and s390 guests
+
+nova's _set_features() adds the ACPI feature unconditionally for the qemu
+and kvm virt types, with no architecture check. The ppc64 "pseries" and
+s390 "s390-ccw-virtio" machine types have no ACPI at all - they use a
+device tree / SCLP instead - and libvirt >= 10 validates this and refuses
+the domain:
+
+    libvirt.libvirtError: unsupported configuration: machine type
+    'pseries-10.0' does not support ACPI
+
+Older libvirt silently ignored the flag, which is why this only surfaces
+now (this build ships libvirt 11.3 and QEMU 10.0). The effect is total:
+no instance can be spawned on a ppc64le compute node, every build fails
+in _create_guest_with_network and is rescheduled until it errors.
+
+APIC has an escape hatch for exactly this class of problem
+([workarounds] libvirt_disable_apic) but ACPI has none, so there is no
+configuration-only fix and the source has to be corrected.
+
+The guest architecture is read with libvirt_utils.get_arch(image_meta),
+which is the idiom already used elsewhere in this file, so images that
+set hw_architecture are honoured rather than assuming the host arch.
+
+Applied against the installed copy in the venv, because the nova-base
+Dockerfile runs kolla_patch after `pip install /nova`. Path uses the
+version-independent `python3` symlink created in
+docker/openstack-base/Dockerfile.j2.
+
+--- var/lib/kolla/venv/lib/python3/site-packages/nova/virt/libvirt/driver.py
++++ var/lib/kolla/venv/lib/python3/site-packages/nova/virt/libvirt/driver.py
+@@ -6729,7 +6729,16 @@
+                 image_meta.properties.get('img_hide_hypervisor_id'))
+ 
+         if CONF.libvirt.virt_type in ('qemu', 'kvm'):
+-            guest.add_feature(vconfig.LibvirtConfigGuestFeatureACPI())
++            # ppc64 (pseries) and s390 (s390-ccw-virtio) machine types have
++            # no ACPI, and libvirt >= 10 rejects the domain instead of
++            # ignoring the flag, so it must not be requested there.
++            if libvirt_utils.get_arch(image_meta) not in (
++                    fields.Architecture.PPC64LE,
++                    fields.Architecture.PPC64,
++                    fields.Architecture.PPC,
++                    fields.Architecture.S390X,
++                    fields.Architecture.S390):
++                guest.add_feature(vconfig.LibvirtConfigGuestFeatureACPI())
+             if not CONF.workarounds.libvirt_disable_apic:
+                 guest.add_feature(vconfig.LibvirtConfigGuestFeatureAPIC())
+ 

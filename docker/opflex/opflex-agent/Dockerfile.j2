@@ -1,0 +1,84 @@
+FROM {{ namespace }}/{{ image_prefix }}neutron-base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+{% block opflex_agent_header %}{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{{ macros.configure_user(name='opflex') }}
+
+{% if base_package_type == 'deb' %}
+{# NOTE: lldpd is here for its client, lldpctl. neutron-cisco-apic-host-agent
+   discovers which leaf and port the host is cabled to by running
+   "lldpctl -f keyvalue <uplink>" (opflexagent/apic_topology.py) and reporting
+   the result, which is what creates the HostLink the fabric needs before it
+   will accept this host. Debian ships no client-only package, so the daemon
+   comes along too - it is never started here; lldpd runs in its own container
+   and this one only talks to its control socket. #}
+    {% set opflex_agent_packages = [
+        'libboost-system1.83.0',
+        'libboost-filesystem1.83.0',
+        'libboost-program-options1.83.0',
+        'libboost-iostreams1.83.0',
+        'libuv1',
+        'lldpd',
+    ] %}
+{% endif %}
+
+{{ macros.install_packages(opflex_agent_packages | customizable("packages")) }}
+
+{# NOTE: Debian ships lldpcli setuid _lldpd so unprivileged users can query the
+   daemon. Here it does the opposite: this container runs as root, and the
+   setuid bit *drops* it to this image's _lldpd, whose uid does not match the
+   one lldpd used in its own container when it created /run/lldpd.socket - the
+   two images number that user differently. lldpctl then fails with "unable to
+   connect to socket /run/lldpd.socket: Permission denied" even though a plain
+   connect() as root succeeds. Nothing unprivileged runs here, so drop it. #}
+{% if base_package_type == 'deb' %}
+RUN chmod u-s /usr/sbin/lldpcli
+{% endif %}
+
+{% block opflex_agent_install %}
+ADD opflex-agent-plugin-binaries-archive /
+RUN ldconfig \
+    && mkdir -p /etc/opflex-agent /var/lib/opflex-agent /var/log/opflex-agent \
+    && chown -R opflex:opflex /etc/opflex-agent /var/lib/opflex-agent /var/log/opflex-agent
+
+{# NOTE: neutron-opflex-agent imports as_metadata_manager at module scope, which
+   needs pyinotify. pyinotify has been unmaintained since 2015 and still does a
+   module-level "import asyncore", a module Python removed in 3.12, so on the
+   3.13 base it raises ModuleNotFoundError on import. pyasyncore restores that
+   module name; as_metadata_manager only uses WatchManager, Notifier,
+   ProcessEvent and the IN_* constants, never pyinotify's AsyncNotifier, so the
+   shim satisfies the import without anything depending on its behaviour. #}
+{% set opflex_agent_pip_packages = [
+    '/opflex-agent',
+    'pyinotify',
+    'pyasyncore',
+] %}
+
+ADD opflex-agent-archive /opflex-agent-source
+RUN ln -s /opflex-agent-source/* /opflex-agent \
+    && {{ macros.install_pip(opflex_agent_pip_packages | customizable("pip_packages")) }}
+{% endblock %}
+
+COPY extend_start.sh /usr/local/bin/kolla_extend_start
+RUN chmod 755 /usr/local/bin/kolla_extend_start
+
+{{ macros.kolla_patch_sources() }}
+
+{% block opflex_agent_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+{# NOTE: deliberately no "USER opflex" here. agent-ovs opens OVS' unix sockets
+   directly - the OVSDB socket and each bridge's OpenFlow management socket -
+   rather than shelling out through rootwrap or privsep the way neutron's own
+   OVS agent does. kolla's ovsdb-server creates /run/openvswitch/db.sock as
+   root:root 0750, so an unprivileged uid gets EACCES on every connection and
+   the agent runs on programming nothing into the datapath. Upstream runs
+   agent-ovs as root for the same reason, and kolla's own openvswitch-db-server
+   and openvswitch-vswitchd images set no USER either. The opflex user is still
+   created above, because the config.json files chown the agents' state and log
+   directories to it. #}
