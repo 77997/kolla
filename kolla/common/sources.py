@@ -58,10 +58,11 @@ SOURCES = {
         'type': 'url',
         'sha256': {
             'amd64': '66bad39ed920f6fc15fd74adcb8bfd38ba9a6412f8c7852d09eb11670e88cac3',  # noqa: E501
-            'arm64': '7010161787077b07de29b15b76825ceacbbcedcb77fe2e6832f509be102cab6b'},  # noqa: E501
+            'arm64': '7010161787077b07de29b15b76825ceacbbcedcb77fe2e6832f509be102cab6b',  # noqa: E501
+            'ppc64el': '3cf99879c7c5b8678a0ec2edf9102b268ea934584db2850f049d89ed8e36b61c'},  # noqa: E501
         'location': ('https://github.com/etcd-io/etcd/'
                      'releases/download/v${version}'
-                     '/etcd-v${version}-linux-${debian_arch}.tar.gz')},
+                     '/etcd-v${version}-linux-${go_arch}.tar.gz')},
     'glance-base': {
         'type': 'url',
         'location': ('$tarballs_base/openstack/glance/'
@@ -164,7 +165,10 @@ SOURCES = {
             'arm64': '2973b412d37e5d652a91bda1a6bf7642491e316bc0f855a614e2c996249014dc'},  # noqa: E501
         'location': ('https://github.com/go-acme/lego/'
                      'releases/download/${version}/'
-                     'lego_${version}_linux_${debian_arch}.tar.gz')},
+                     'lego_${version}_linux_${go_arch}.tar.gz'),
+        'location_override': {
+            'ppc64el': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                        'lego_v4.27.0_linux_ppc64le.tar.gz')}},
     'magnum-base': {
         'type': 'url',
         'location': ('$tarballs_base/openstack/magnum/'
@@ -174,9 +178,10 @@ SOURCES = {
         'type': 'url',
         'sha256': {
             'amd64': 'a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496',  # noqa: E501
-            'arm64': '440cf7add0aee27ebc93fada965523c1dc2e0ab340d4348da2215737fc0d76ad'},  # noqa: E501
+            'arm64': '440cf7add0aee27ebc93fada965523c1dc2e0ab340d4348da2215737fc0d76ad',  # noqa: E501
+            'ppc64el': 'f57ea04d7fa62cc3e90a831eb67edb1400c810df6083875bee3a7c195a795ce4'},  # noqa: E501
         'location': ('https://get.helm.sh/helm'
-                     '-${version}-linux-${debian_arch}.tar.gz')},
+                     '-${version}-linux-${go_arch}.tar.gz')},
     'manila-base': {
         'type': 'url',
         'location': ('$tarballs_base/openstack/manila/'
@@ -267,23 +272,25 @@ SOURCES = {
         'type': 'url',
         'sha256': {
             'amd64': '35191cbd9d4f8162458b78dd7e93990cccd246044d9a6f788adb1c66ac3ea07b',  # noqa: E501
-            'arm64': '266dda88b64318c27847ef9af4ff450fc178c827550a8039420c5ca8657a4a8b'},  # noqa: E501
+            'arm64': '266dda88b64318c27847ef9af4ff450fc178c827550a8039420c5ca8657a4a8b',  # noqa: E501
+            'ppc64el': 'acec8f83000749b2c74fc77a0e5ce1da75d4daadfc1ff4e29ef584a2341927ae'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus/alertmanager/'
                      'releases/download/v${version}/'
                      'alertmanager'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-blackbox-exporter': {
         'version': '0.28.0',
         'type': 'url',
         'sha256': {
             'amd64': 'caf5d242fb1cf6d5cb678f3f799f22703d4fafea26b03dcbbd7e1f1825e06329',  # noqa: E501
-            'arm64': '63312be0983d85e5109710a7dc93df3051157ae581853fa3655d171cc1b2806e'},  # noqa: E501
+            'arm64': '63312be0983d85e5109710a7dc93df3051157ae581853fa3655d171cc1b2806e',  # noqa: E501
+            'ppc64el': '8cccdbd853b5e2d0d4926f28e79613cba72a7af732dff912b5a67139bd0bbd56'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus/blackbox_exporter/'
                      'releases/download/v${version}/'
                      'blackbox_exporter'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-cadvisor': {
         'version': '0.56.2',
         'type': 'url',
@@ -294,18 +301,22 @@ SOURCES = {
                      'google/cadvisor/'
                      'releases/download/v${version}/'
                      'cadvisor'
-                     '-v${version}-linux-${debian_arch}')},
+                     '-v${version}-linux-${go_arch}'),
+        'location_override': {
+            'ppc64el': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                        'cadvisor-v0.56.2-linux-ppc64le')}},
     'prometheus-elasticsearch-exporter': {
         'version': '1.10.0',
         'type': 'url',
         'sha256': {
             'amd64': '1dcf288082a25b2741e98da6c9fc012b6c821696a26c6ac57c20042f24714a74',  # noqa: E501
-            'arm64': '0ff4753a975eb5611c03123d565e8aaa84e4c05f698ce0a2d6c0f437a14bfe34'},  # noqa: E501
+            'arm64': '0ff4753a975eb5611c03123d565e8aaa84e4c05f698ce0a2d6c0f437a14bfe34',  # noqa: E501
+            'ppc64el': 'd25d39b1fd9da8858ab9b204c1e8c21ab38cdc6c04575a3f9dfc0d7723d3ff7e'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus-community/elasticsearch_exporter/'
                      'releases/download/v${version}/'
                      'elasticsearch_exporter'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-libvirt-exporter': {
         'version': '2.3.1',
         'type': 'url',
@@ -316,18 +327,22 @@ SOURCES = {
                      'inovex/prometheus-libvirt-exporter/'
                      'releases/download/v${version}/'
                      'prometheus-libvirt-exporter'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz'),
+        'location_override': {
+            'ppc64el': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                        'prometheus-libvirt-exporter-2.3.1.linux-ppc64le.tar.gz')}},
     'prometheus-memcached-exporter': {
         'version': '0.15.5',
         'type': 'url',
         'sha256': {
             'amd64': '5b82e6579b77fae00683d10d5923329173925a5abd95a799f5489a66136b884c',  # noqa: E501
-            'arm64': '609e6d7484f22fd9e405c0022a9e2d7f86eedef1cfa55772231528271082aeae'},  # noqa: E501
+            'arm64': '609e6d7484f22fd9e405c0022a9e2d7f86eedef1cfa55772231528271082aeae',  # noqa: E501
+            'ppc64el': '41967462be1ba3d061a3959da5003836996f54da44a6cb13bb4f3741af104127'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus/memcached_exporter/'
                      'releases/download/v${version}/'
                      'memcached_exporter'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-mtail': {
         'version': '3.0.8',
         'type': 'url',
@@ -338,29 +353,34 @@ SOURCES = {
                      'google/mtail/'
                      'releases/download/v${version}/'
                      'mtail'
-                     '_${version}_linux_${debian_arch}.tar.gz')},
+                     '_${version}_linux_${go_arch}.tar.gz'),
+        'location_override': {
+            'ppc64el': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                        'mtail_3.0.8_linux_ppc64le.tar.gz')}},
     'prometheus-mysqld-exporter': {
         'version': '0.18.0',
         'type': 'url',
         'sha256': {
             'amd64': '46e8f45654352bdd42d162b2b4a68f00055d45acc168f9c068235b9e3acc39c1',  # noqa: E501
-            'arm64': 'abdb452600ca086b68244aadf8045fbf0b6a48dcb76eed5576995806c176f6ce'},  # noqa: E501
+            'arm64': 'abdb452600ca086b68244aadf8045fbf0b6a48dcb76eed5576995806c176f6ce',  # noqa: E501
+            'ppc64el': '1c38e7c21fa1f067d28d00640def4fcf9794e88ec4d1262ff4a4ff4d4331ff0a'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus/mysqld_exporter/'
                      'releases/download/v${version}/'
                      'mysqld_exporter'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-node-exporter': {
         'version': '1.10.2',
         'type': 'url',
         'sha256': {
             'amd64': 'c46e5b6f53948477ff3a19d97c58307394a29fe64a01905646f026ddc32cb65b',  # noqa: E501
-            'arm64': 'de69ec8341c8068b7c8e4cfe3eb85065d24d984a3b33007f575d307d13eb89a6'},  # noqa: E501
+            'arm64': 'de69ec8341c8068b7c8e4cfe3eb85065d24d984a3b33007f575d307d13eb89a6',  # noqa: E501
+            'ppc64el': '2ec66b407baeb3930b13a3aac661fe33525293a2870204dd923d5da1c7c85d25'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus/node_exporter/'
                      'releases/download/v${version}/'
                      'node_exporter'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-openstack-exporter': {
         'version': '1.7.0',
         'type': 'url',
@@ -371,7 +391,10 @@ SOURCES = {
                      'openstack-exporter/openstack-exporter/'
                      'releases/download/v${version}/'
                      'openstack-exporter'
-                     '_${version}_linux_${debian_arch}.tar.gz')},
+                     '_${version}_linux_${go_arch}.tar.gz'),
+        'location_override': {
+            'ppc64el': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                        'openstack-exporter_1.7.0_linux_ppc64le.tar.gz')}},
     'prometheus-openstack-network-exporter': {
         'version': '0.2.0',
         'type': 'url',
@@ -388,23 +411,25 @@ SOURCES = {
         'type': 'url',
         'sha256': {
             'amd64': '8c30b9d99664e39b0363c0ba54fab30a7958e9d3de27246bf26ed85e6cfb8946',  # noqa: E501
-            'arm64': '11457bc76cab34f5ac05ba05fb80cfca1e8be7e4b31ae7c054879ce1066cb9a5'},  # noqa: E501
+            'arm64': '11457bc76cab34f5ac05ba05fb80cfca1e8be7e4b31ae7c054879ce1066cb9a5',  # noqa: E501
+            'ppc64el': '86cff8cacffb7bdd4c5d326d04e5f38005f00178cb848477d912cee6b0a40cb3'},  # noqa: E501
         'location': ('https://github.com/'
                      'prometheus/prometheus/'
                      'releases/download/v${version}/'
                      'prometheus'
-                     '-${version}.linux-${debian_arch}.tar.gz')},
+                     '-${version}.linux-${go_arch}.tar.gz')},
     'prometheus-valkey-exporter': {
         'version': '1.82.0',
         'type': 'url',
         'sha256': {
             'amd64': '2d98dd0888f46e206bf3ad1b7c1784934a3a39cd8774cf47615f4c15594547cd',  # noqa: E501
-            'arm64': '13aaa6acbb145848cb97ed3bab22747e094b3f0ed22df83c8ace593e3c527c95'},  # noqa: E501
+            'arm64': '13aaa6acbb145848cb97ed3bab22747e094b3f0ed22df83c8ace593e3c527c95',  # noqa: E501
+            'ppc64el': 'e26b56781eb1a38ed57fcc95e6af57725221f4382f05056cd0f6bc481ed5b055'},  # noqa: E501
         'location': ('https://github.com/'
                      'oliver006/redis_exporter/'
                      'releases/download/v${version}/'
                      'redis_exporter'
-                     '-v${version}.linux-${debian_arch}.tar.gz')},
+                     '-v${version}.linux-${go_arch}.tar.gz')},
     'skyline-apiserver': {
         'type': 'url',
         'location': ('$tarballs_base/openstack/skyline-apiserver/'
@@ -428,5 +453,63 @@ SOURCES = {
     'watcher-base': {
         'type': 'url',
         'location': ('$tarballs_base/openstack/watcher/'
-                     'watcher-${openstack_branch}.tar.gz')}
+                     'watcher-${openstack_branch}.tar.gz')},
+    # Cisco ACI Integration Module components
+    'aci-aim-base': {
+        'type': 'git',
+        'reference': 'master',
+        'location': ('https://github.com/77997/'
+                     'aci-integration-module.git')},
+    'aci-aim-base-plugin-apicapi': {
+        'type': 'git',
+        'reference': 'master',
+        'location': ('https://github.com/noironetworks/'
+                     'apicapi.git')},
+    'aci-aim-base-plugin-acitoolkit': {
+        'type': 'git',
+        'reference': 'noiro-lite',
+        'location': ('https://github.com/noironetworks/'
+                     'acitoolkit.git')},
+    'opflex-agent': {
+        'type': 'git',
+        'reference': '18.2.1',
+        'location': ('https://github.com/noironetworks/'
+                     'python-opflex-agent.git')},
+    'opflex-agent-plugin-binaries': {
+        'type': 'url',
+        'location': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                     'opflex-binaries-amd64.tar.gz'),
+        'location_override': {
+            'ppc64el': ('https://77997.github.io/kolla/ppc64le/tarballs/'
+                        'opflex-binaries-ppc64le.tar.gz')}},
+    'neutron-server-plugin-networking-aci': {
+        'type': 'git',
+        'reference': 'master',
+        'location': ('https://github.com/77997/'
+                     'aci-integration-module.git')},
+    'neutron-server-plugin-networking-aci-plugin-apicapi': {
+        'type': 'git',
+        'reference': 'master',
+        'location': ('https://github.com/noironetworks/'
+                     'apicapi.git')},
+    'neutron-server-plugin-networking-aci-plugin-acitoolkit': {
+        'type': 'git',
+        'reference': 'noiro-lite',
+        'location': ('https://github.com/noironetworks/'
+                     'acitoolkit.git')},
+    'neutron-server-plugin-networking-aci-plugin-gbp': {
+        'type': 'git',
+        'reference': 'master',
+        'location': ('https://github.com/77997/'
+                     'group-based-policy.git')},
+    'neutron-server-plugin-networking-aci-plugin-opflex-agent': {
+        'type': 'git',
+        'reference': '18.2.1',
+        'location': ('https://github.com/noironetworks/'
+                     'python-opflex-agent.git')},
+    'neutron-server-plugin-networking-aci-plugin-gbpclient': {
+        'type': 'git',
+        'reference': 'master',
+        'location': ('https://opendev.org/x/'
+                     'python-group-based-policy-client.git')},
 }
