@@ -1,1 +1,2 @@
 0001-libvirt-do-not-set-acpi-on-ppc64-and-s390.patch
+0002-console-use-AF_INET6-when-proxyclient_address-is-ipv6.patch

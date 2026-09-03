@@ -1,0 +1,47 @@
+Subject: [PATCH] console: pick the socket family from the address in _verify_port
+
+nova/console/serial.py:_verify_port() probes a candidate TCP port with a
+bare socket.socket(), which defaults to AF_INET, then binds
+[serial_console] proxyclient_address to it. On an IPv6-only deployment
+that address is an IPv6 literal, and binding an IPv6 address to an
+AF_INET socket always raises, so every port in serial_console.port_range
+looks occupied:
+
+    nova.exception.SocketPortRangeExhaustedException: Not able to acquire
+    a free port for 2602:f86e:140:120:1021:14ff:fef2:4b4f
+
+acquire_port() walks the whole range, treats all ~10000 ports as in use,
+and raises. That propagates out of _create_serial_consoles() in the
+libvirt driver, so the guest never builds: the instance goes to ERROR and
+no domain is left on the hypervisor. It is not specific to one instance -
+with [serial_console] enabled = true, NO instance can boot on an
+IPv6-only cloud.
+
+There is no configuration-only workaround. proxyclient_address is derived
+from the compute's api_interface address, and on this estate every node's
+API interface is IPv6-only - the control node has no IPv4 address at all -
+so there is no v4 address to fall back to and no port_range that helps.
+
+Choose the address family from the host string instead.
+
+Applied against the installed copy in the venv, because the nova-base
+Dockerfile runs kolla_patch after `pip install /nova`. Path uses the
+version-independent `python3` symlink created in
+docker/openstack-base/Dockerfile.j2.
+
+--- var/lib/kolla/venv/lib/python3/site-packages/nova/console/serial.py
++++ var/lib/kolla/venv/lib/python3/site-packages/nova/console/serial.py
+@@ -80,7 +80,12 @@
+ 
+ 
+ def _verify_port(host, port):
+-    s = socket.socket()
++    # socket.socket() defaults to AF_INET. Binding an IPv6 literal to an
++    # AF_INET socket always raises, which would make every port in
++    # serial_console.port_range look occupied and defeat acquire_port().
++    # Derive the family from the address so IPv6-only deployments work.
++    family = socket.AF_INET6 if ':' in host else socket.AF_INET
++    s = socket.socket(family)
+     try:
+         s.bind((host, port))
+     except socket.error as e:
