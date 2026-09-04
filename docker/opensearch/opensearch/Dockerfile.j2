@@ -16,7 +16,39 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 ENV OPENSEARCH_INITIAL_ADMIN_PASSWORD="Kolla24OpenSearch"
 
+{% if base_arch == 'ppc64le' %}
+    {# NOTE: amd64 installs upstream's bundle (repos.yaml deb: 3.x apt), which
+       ships the plugins. There is no ppc64le bundle, so debian-ppc64le: points
+       at our own repo, whose package is built from opensearch-project/OpenSearch
+       -- the core repo, whose only deb target is opensearch-min. That has an
+       EMPTY plugins/ directory, and kolla-ansible unconditionally writes
+       plugins.security.disabled into opensearch.yml, so the node aborts with
+       "unknown setting [plugins.security.disabled]" and the deploy fails in the
+       opensearch role. The role also PUTs a retention policy to
+       /_plugins/_ism/*, which needs index-management (which in turn declares
+       extended.plugins=opensearch-job-scheduler, so order matters here).
+
+       These three released artifacts are pure Java -- no .so, no arch-specific
+       objects -- so they install unchanged on ppc64le. Keep the version in step
+       with OPENSEARCH_VERSION in .github/workflows/publish-ppc64le-deps.yml;
+       plugins are versioned <opensearch version>.0. #}
+    {% set opensearch_plugin_version = '2.18.0.0' %}
+    {% set opensearch_plugin_repo = 'https://repo1.maven.org/maven2/org/opensearch/plugin' %}
+    {% set opensearch_plugins = [
+        'opensearch-job-scheduler',
+        'opensearch-index-management',
+        'opensearch-security'
+    ] %}
+{% endif %}
+
 {{ macros.install_packages(opensearch_packages | customizable("packages")) }} \
+{% if base_arch == 'ppc64le' %}
+{% for plugin in opensearch_plugins %}
+    && curl -fsSL -o /tmp/{{ plugin }}.zip {{ opensearch_plugin_repo }}/{{ plugin }}/{{ opensearch_plugin_version }}/{{ plugin }}-{{ opensearch_plugin_version }}.zip \
+    && /usr/share/opensearch/bin/opensearch-plugin install --batch file:///tmp/{{ plugin }}.zip \
+    && rm -f /tmp/{{ plugin }}.zip \
+{% endfor %}
+{% endif %}
     && chown -R opensearch:opensearch /usr/share/opensearch \
     && rm -f /etc/opensearch/*.pem \
     && rm -f /etc/opensearch/securityadmin_demo.sh
