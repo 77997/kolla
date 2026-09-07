@@ -7,7 +7,11 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {% import "macros.j2" as macros with context %}
 
+{# ppc64le: the MariaDB repos have no working ppc64el debs, so fall back to
+   Debian's native mariadb-client instead of enabling the MariaDB repo. #}
+{% if base_arch != 'ppc64le' %}
 {{ macros.enable_extra_repos(['mariadb']) }}
+{% endif %}
 
 {% if base_package_type == 'rpm' %}
     {% set keepalived_packages = [

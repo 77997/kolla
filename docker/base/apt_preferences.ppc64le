@@ -1,0 +1,3 @@
+Package: src:ceph:any
+Pin: release o=osbpo
+Pin-Priority: -1
