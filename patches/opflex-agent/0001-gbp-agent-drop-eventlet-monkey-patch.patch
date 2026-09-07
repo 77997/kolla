@@ -1,0 +1,45 @@
+Subject: [PATCH] gbp_agent: drop eventlet monkey-patch for OpenStack 2026.1
+
+neutron 2026.1 is designed to run un-patched on native threads, and
+neutron's own OVS agent entry point -- the class GBPOpflexAgent subclasses
+-- no longer monkey-patches at all. Monkey-patching it back re-introduces
+green threads under an agent whose base class no longer expects them.
+
+Upstream chose the other way. Through the 18.2.1 tag these lines read
+
+    from neutron.common import eventlet_utils  # noqa
+    eventlet_utils.monkey_patch()  # noqa
+
+which aborted the agent at startup on 2026.1, because neutron deleted both
+``neutron.common.eventlet_utils`` and the whole ``neutron/cmd/eventlet/``
+package:
+
+    ImportError: cannot import name 'eventlet_utils' from 'neutron.common'
+
+Upstream fixed that ImportError in f986945 "Add Gazpacho Support" by
+keeping the monkey-patch and calling eventlet directly instead. That
+resolves the import but not the reason the call is wrong here, so we still
+remove it -- the same two-statement deletion as before, restated against
+the new context. This is a deliberate, single-hunk divergence from
+upstream and the only functional difference between our build and the
+combination upstream gates against.
+
+Applied against the installed copy in the venv, because the opflex-agent
+Dockerfile runs kolla_patch after `pip install /opflex-agent`.
+Path uses the version-independent `python3` symlink created in
+docker/openstack-base/Dockerfile.j2.
+
+--- var/lib/kolla/venv/lib/python3/site-packages/opflexagent/gbp_agent.py
++++ var/lib/kolla/venv/lib/python3/site-packages/opflexagent/gbp_agent.py
+@@ -15,11 +15,6 @@
+ import sys
+ import time
+ 
+-# We need to ensure that the monkey-patch gets applied
+-# before other packages that use eventlet get imported
+-import eventlet
+-eventlet.monkey_patch()
+-
+ from neutron.agent.common import ip_lib
+ from neutron.agent.common import polling
+ from neutron.agent import rpc as agent_rpc

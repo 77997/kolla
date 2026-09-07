@@ -28,7 +28,11 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 RUN ln -s /usr/lib64/galera-4 /usr/lib64/galera
 
 {% elif base_package_type == 'deb' %}
+{# ppc64le: the MariaDB repos have no working ppc64el debs, so use Debian's
+   native mariadb (11.8) instead of enabling the MariaDB repo. #}
+{% if base_arch != 'ppc64le' %}
 {{ macros.enable_extra_repos(['mariadb']) }}
+{% endif %}
     {% set mariadb_packages = [
         'expect',
         'mariadb-backup',

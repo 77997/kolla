@@ -13,6 +13,7 @@
 import contextlib
 import logging
 import queue
+import random
 import shutil
 import sys
 import threading
@@ -80,7 +81,14 @@ class WorkerThread(threading.Thread):
                     except Exception:
                         LOG.exception('Unhandled error when running %s',
                                       task.name)
-                    # try again...
+                    # try again with exponential backoff and jitter
+                    if attempt < self.conf.retries:
+                        base_sleep = min(4 ** (attempt + 1), 120)
+                        jitter = random.uniform(0, base_sleep * 0.5)
+                        sleep_time = base_sleep + jitter
+                        LOG.info("Waiting %.1f seconds before retry...",
+                                 sleep_time)
+                        time.sleep(sleep_time)
                     task.reset()
                 if task.success and not self.should_stop:
                     for next_task in task.followups:

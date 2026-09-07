@@ -19,6 +19,10 @@ UNBUILDABLE_IMAGES = {
         "bifrost-base",        # someone need to get upstream working first
     },
 
+    'ppc64le': {
+        "bifrost-base",              # no ppc64le support
+    },
+
     # Issues for SHA1 keys:
     # https://github.com/grafana/grafana/issues/41036
     'centos': {

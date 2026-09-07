@@ -18,6 +18,13 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
         'mod_proxy_uwsgi'
     ] %}
 {% elif base_package_type == 'deb' %}
+{# ppc64le: Debian trixie's apr-util 1.6.3 resolves and connects to memcached
+   over IPv4 only, so mod_auth_openidc cannot reach an IPv6-only memcached;
+   enable the ppc64le repository, whose apr-util 1.6.6-1~as30265.1 is Debian's
+   1.6.6-1 rebuilt for trixie and sorts above trixie's, so apache2 takes it. #}
+{% if base_arch == 'ppc64le' %}
+{{ macros.enable_extra_repos(['apr-util']) }}
+{% endif %}
     {% set apache_packages = [
         'apache2',
         'ca-certificates',

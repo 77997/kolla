@@ -23,24 +23,64 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.install_packages(ironic_pxe_packages | customizable("packages")) }}
 {% elif base_package_type == 'deb' %}
+    {# Common packages for all architectures #}
     {% set ironic_pxe_packages = [
         'dosfstools',
-        'grub-efi-*64-signed',
         'ipxe',
         'mtools',
         'pxelinux',
-        'shim-signed',
         'syslinux-common',
         'tftpd-hpa'
     ] %}
 
     {% if base_arch == 'x86_64' %}
         {% set ironic_pxe_packages = ironic_pxe_packages + [
+            'shim-signed',
+            'grub-efi-amd64-signed',
             'syslinux'
+        ] %}
+    {% elif base_arch == 'aarch64' %}
+        {% set ironic_pxe_packages = ironic_pxe_packages + [
+            'shim-signed',
+            'grub-efi-arm64-signed'
         ] %}
     {% endif %}
 
 {{ macros.install_packages(ironic_pxe_packages | customizable("packages")) }}
+
+{# Cross-download UEFI boot files for non-native target architectures.
+   This enables any control plane arch to provision both amd64 and aarch64
+   bare metal. File paths do not conflict between architectures:
+     amd64: /usr/lib/shim/shimx64.efi.signed, /usr/lib/grub/x86_64-efi-signed/grubnetx64.efi.signed
+     arm64: /usr/lib/shim/shimaa64.efi.signed, /usr/lib/grub/arm64-efi-signed/grubnetaa64.efi.signed #}
+    {% if base_arch == 'x86_64' %}
+RUN dpkg --add-architecture arm64 \
+    && apt-get update \
+    && cd /tmp \
+    && apt-get download shim-signed:arm64 grub-efi-arm64-signed:arm64 \
+    && for f in /tmp/*.deb; do dpkg-deb -x "$f" /; done \
+    && rm -f /tmp/*.deb \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    {% elif base_arch == 'aarch64' %}
+RUN dpkg --add-architecture amd64 \
+    && apt-get update \
+    && cd /tmp \
+    && apt-get download shim-signed:amd64 grub-efi-amd64-signed:amd64 \
+    && for f in /tmp/*.deb; do dpkg-deb -x "$f" /; done \
+    && rm -f /tmp/*.deb \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    {% else %}
+{# ppc64le or other: no native shim/grub available, download both #}
+RUN dpkg --add-architecture amd64 \
+    && dpkg --add-architecture arm64 \
+    && apt-get update \
+    && cd /tmp \
+    && apt-get download shim-signed:amd64 grub-efi-amd64-signed:amd64 \
+                        shim-signed:arm64 grub-efi-arm64-signed:arm64 \
+    && for f in /tmp/*.deb; do dpkg-deb -x "$f" /; done \
+    && rm -f /tmp/*.deb \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    {% endif %}
 {% endif %}
 
 ENV TFTPBOOT_PATH=/tftpboot \

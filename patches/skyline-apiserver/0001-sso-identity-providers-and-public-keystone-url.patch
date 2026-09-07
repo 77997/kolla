@@ -1,0 +1,217 @@
+Subject: [PATCH] login: one SSO option per identity provider, sent to a browser-facing Keystone
+
+GET /api/v1/sso builds the sign-in links the Skyline console offers, and
+in stable/2026.1 it gets two things wrong for a deployment whose browsers
+reach Keystone at another address from the one skyline-apiserver uses.
+
+1. The links are built from [openstack] keystone_url. That is the address
+   skyline-apiserver itself calls Keystone at, which kolla-ansible sets to
+   the internal endpoint (http://<internal fqdn>:5000/v3/). A browser
+   cannot reach it, and it is not the host whose mod_auth_openidc redirect
+   URI the identity provider holds, so even where it resolves the sign-in
+   fails at the provider. Nothing upstream addresses this.
+
+   Add sso_keystone_url, the Keystone address the browser is sent to for
+   SSO, used in place of keystone_url to build the links when it is set.
+   It is an Optional[HttpUrl]: a URL is validated as keystone_url is, and
+   unset (or an empty YAML value, which loads as null) keeps keystone_url,
+   so the default behaviour is unchanged. keystone_url still serves every
+   server-side call, including the websso token exchange.
+
+2. The links use Keystone's protocol-level endpoint,
+   /v3/auth/OS-FEDERATION/websso/{protocol}. Behind mod_auth_openidc that
+   shows the module's bare provider-picker page, outside Skyline, instead
+   of going to the identity provider.
+
+   Backport skyline-apiserver master 60e2692e2b ("Return one SSO login
+   option per identity provider"), which adds sso_identity_providers, a
+   list of {name, protocol, label}. When it is set /sso returns one option
+   per identity provider, pointing at the per-IdP endpoint
+   /v3/auth/OS-FEDERATION/identity_providers/{idp}/protocols/{protocol}/websso,
+   which redirects straight to the provider, with its label for the
+   console to show; when it is empty the per-protocol options are kept.
+   Also backport the runtime part of 170638b7a6 ("Improve
+   sso_identity_providers docs and /sso response safety"): /sso is
+   answered with response_model_exclude_none, so an option without a label
+   carries no "label": null, which the stable/2026.1 console spreads over
+   its computed option name and would blank it; and the option
+   descriptions say sso_protocols is ignored while sso_identity_providers
+   is set. Their tests, documentation and release notes are not installed
+   in site-packages and are left out.
+
+The configuration loader validates each option's value against its
+schema but keeps the value as loaded from YAML, so sso_identity_providers
+holds a list of mappings and is read as idp["name"], as upstream reads
+it. The loader reads only the options it declares and ignores any other
+key, so this image runs with a skyline.yaml written before or after it.
+
+Applied against the installed copy in the venv, because the
+skyline-apiserver Dockerfile runs kolla_patch after `pip install
+/skyline-apiserver`. Paths use the version-independent `python3` symlink
+created in docker/openstack-base/Dockerfile.j2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+--- var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/types/__init__.py
++++ var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/types/__init__.py
+@@ -17,6 +17,8 @@
+ from enum import Enum
+ from typing import Any, Callable, Dict, Optional, TypeVar
+ 
++from pydantic import BaseModel, StrictStr
++
+ # Function types
+ Fn = TypeVar("Fn", bound=Callable[..., Any])
+ 
+@@ -27,6 +29,12 @@
+     public = "public"
+ 
+ 
++class SSOIdentityProvider(BaseModel):
++    name: StrictStr
++    protocol: StrictStr
++    label: StrictStr
++
++
+ SchemaT = Dict[str, Any]
+ EnvT = Optional[Dict[str, str]]
+ 
+--- var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/config/openstack.py
++++ var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/config/openstack.py
+@@ -14,12 +14,12 @@
+ 
+ from __future__ import annotations
+ 
+-from typing import Dict, List
++from typing import Dict, List, Optional
+ 
+ from pydantic import HttpUrl, StrictBool, StrictInt, StrictStr
+ 
+ from skyline_apiserver.config.base import Opt
+-from skyline_apiserver.types import InterfaceType
++from skyline_apiserver.types import InterfaceType, SSOIdentityProvider
+ 
+ keystone_url = Opt(
+     name="keystone_url",
+@@ -185,7 +185,10 @@
+ 
+ sso_protocols = Opt(
+     name="sso_protocols",
+-    description="SSO protocol list",
++    description=(
++        "SSO protocol list used when sso_identity_providers is empty. "
++        "Ignored when sso_identity_providers is set."
++    ),
+     schema=List[StrictStr],
+     default=[
+         "openid",
+@@ -199,12 +202,36 @@
+     default="RegionOne",
+ )
+ 
++sso_identity_providers = Opt(
++    name="sso_identity_providers",
++    description=(
++        "List of SSO identity providers. Each entry needs name, protocol and "
++        "label. When set, /sso returns one option per provider and "
++        "sso_protocols is ignored."
++    ),
++    schema=List[SSOIdentityProvider],
++    default=[],
++)
++
++sso_keystone_url = Opt(
++    name="sso_keystone_url",
++    description=(
++        "Keystone endpoint address the browser is sent to for SSO, for example "
++        "the public endpoint when keystone_url is an internal one. When unset, "
++        "keystone_url is used."
++    ),
++    schema=Optional[HttpUrl],
++    default=None,
++)
++
+ GROUP_NAME = __name__.split(".")[-1]
+ ALL_OPTS = (
+     enforce_new_defaults,
+     sso_enabled,
+     sso_protocols,
+     sso_region,
++    sso_identity_providers,
++    sso_keystone_url,
+     keystone_url,
+     system_project_domain,
+     system_project,
+--- var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/schemas/login.py
++++ var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/schemas/login.py
+@@ -115,6 +115,7 @@
+ class SSOInfo(BaseModel):
+     protocol: str
+     url: str
++    label: Optional[str] = None
+ 
+ 
+ class SSO(BaseModel):
+--- var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/api/v1/login.py
++++ var/lib/kolla/venv/lib/python3/site-packages/skyline_apiserver/api/v1/login.py
+@@ -237,6 +237,7 @@
+     response_model=schemas.SSO,
+     status_code=status.HTTP_200_OK,
+     response_description="OK",
++    response_model_exclude_none=True,
+ )
+ def get_sso(request: Request) -> schemas.SSO:
+     sso: Dict = {
+@@ -246,25 +247,39 @@
+     if CONF.openstack.sso_enabled:
+         protocols: List = []
+ 
+-        ks_url = CONF.openstack.keystone_url.rstrip("/")
++        # The browser follows this link, so it may need a different Keystone
++        # address from the one skyline-apiserver itself calls.
++        ks_url = (CONF.openstack.sso_keystone_url or CONF.openstack.keystone_url).rstrip("/")
+         url_scheme = "https" if CONF.default.ssl_enabled else "http"
+         port = f":{request.url.port}" if request.url.port else ""
+         base_url = f"{url_scheme}://{request.url.hostname}{port}"
+         base_path = str(PurePath("/").joinpath(CONF.openstack.nginx_prefix, "skyline"))
+ 
+-        for protocol in CONF.openstack.sso_protocols:
++        origin = f"{base_url}{base_path}{constants.API_PREFIX}/websso"
+ 
+-            url = (
+-                f"{ks_url}/auth/OS-FEDERATION/websso/{protocol}"
+-                f"?origin={base_url}{base_path}{constants.API_PREFIX}/websso"
+-            )
+-
+-            protocols.append(
+-                {
+-                    "protocol": protocol,
+-                    "url": url,
+-                }
+-            )
++        if CONF.openstack.sso_identity_providers:
++            for idp in CONF.openstack.sso_identity_providers:
++                url = (
++                    f"{ks_url}/auth/OS-FEDERATION/identity_providers/{idp['name']}"
++                    f"/protocols/{idp['protocol']}/websso"
++                    f"?origin={origin}"
++                )
++                protocols.append(
++                    {
++                        "protocol": idp["protocol"],
++                        "url": url,
++                        "label": idp["label"],
++                    }
++                )
++        else:
++            for protocol in CONF.openstack.sso_protocols:
++                url = f"{ks_url}/auth/OS-FEDERATION/websso/{protocol}?origin={origin}"
++                protocols.append(
++                    {
++                        "protocol": protocol,
++                        "url": url,
++                    }
++                )
+ 
+         sso = {
+             "enable_sso": CONF.openstack.sso_enabled,
