@@ -1,0 +1,80 @@
+Subject: [PATCH] worker: stop rewriting zone.action to CREATE on a NO_ZONE poll
+
+When the zone poll cannot find the expected serial because the nameserver
+does not hold the zone at all, ZonePoller._threshold_met() classifies the
+result as NO_ZONE rather than ERROR, and _on_failure() then does:
+
+    self.zone.status = error_status          # 'NO_ZONE'
+    if error_status == 'NO_ZONE':
+        self.zone.action = 'CREATE'
+
+ZonePoller.__call__() immediately calls _update_status(), which hands that
+mutated object to UpdateStatus and so calls
+
+    central_api.update_status(ctxt, zone.id, zone.status, zone.serial,
+                              zone.action)
+
+with action='CREATE'. Central guards the write with a check that the action
+it was handed still matches the action recorded for the zone
+(central/service.py update_status):
+
+    if action is None or zone.action == action:
+        zone = self._update_zone_or_record_status(zone, status, serial)
+    else:
+        LOG.debug('Updated action different from current action. '
+                  'Keeping current action ...')
+
+For a zone whose stored action is UPDATE -- any zone that has ever had a
+recordset added or changed -- 'UPDATE' != 'CREATE', so the else branch is
+taken and the status update is silently discarded. Nothing is written, no
+error is surfaced, and the zone stays PENDING forever. designate-producer's
+PeriodicRecoveryTask then re-queues it every 120s, the poll fails again, and
+the zone loops indefinitely.
+
+The rewrite is also redundant. Central already performs exactly this
+transition itself, for both actions, in _update_zone_or_record_status:
+
+    elif status == 'NO_ZONE':
+        if zone_or_record.action in ['CREATE', 'UPDATE']:
+            zone_or_record.action = 'CREATE'
+            zone_or_record.status = 'ERROR'
+
+So the worker only needs to report the zone's true current action and let
+central decide. Dropping the two lines makes an UPDATE zone match the guard,
+reach _update_zone_or_record_status, and land on action=CREATE/status=ERROR
+-- which is what the code already intended.
+
+CREATE zones are unaffected: the removed lines assigned 'CREATE' to a zone
+whose action was already 'CREATE', so the value sent to central is unchanged.
+DELETE zones never reach this branch, because _threshold_met() only returns
+NO_ZONE when is_not_delete is true.
+
+Nothing downstream in the worker depends on the mutation. ZoneAction.__call__
+branches on self.action, the constructor argument, not self.zone.action, and
+parse_query_results() reads zone.action during _do_poll(), which has already
+completed by the time _on_failure() runs.
+
+Demonstrated on a deployment whose mdns was not serving, so every poll
+returned NO_ZONE. A zone left untouched (action CREATE) reached
+CREATE/ERROR in ~2m45s, while an otherwise identical zone with two
+recordsets added (action UPDATE) never left PENDING -- 150s of one-second
+polling of the zones table showed no state change at all, and 12 minutes of
+15-second polling never once observed ERROR.
+
+Still present on designate master as of 960b3b7f, so there is nothing to
+backport.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+--- var/lib/kolla/venv/lib/python3/site-packages/designate/worker/tasks/zone.py
++++ var/lib/kolla/venv/lib/python3/site-packages/designate/worker/tasks/zone.py
+@@ -555,9 +555,6 @@
+ 
+         self.zone.status = error_status
+ 
+-        if error_status == 'NO_ZONE':
+-            self.zone.action = 'CREATE'
+-
+         return False
+ 
+     def _on_success(self, query_result, status):

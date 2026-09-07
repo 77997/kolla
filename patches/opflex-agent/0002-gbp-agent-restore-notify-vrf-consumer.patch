@@ -1,0 +1,40 @@
+Subject: [PATCH] gbp_agent: re-bind the notify-vrf RPC consumer
+
+Upstream commit 3be1e3c "Add RPCs for distributed SNAT" replaced the
+notify-vrf consumer with notify-snat instead of adding alongside it, so
+the agent no longer subscribes to a fanout topic our neutron-server still
+casts on. Everything else survives, which is what makes it a slip rather
+than a removal:
+
+  * the constant           opflexagent/rpc.py:25   NOTIFY_VRF = 'notify-vrf'
+  * the server-side cast   opflexagent/rpc.py:48   topic_opflex_notify_vrf
+                           opflexagent/rpc.py:75   cast 'opflex_notify_vrf'
+  * the agent-side handler opflexagent/rpc.py:357  OpenstackRpcMixin.
+                                                   opflex_notify_vrf()
+
+Only the queue binding is gone. GBPOpflexAgent mixes in OpenstackRpcMixin
+(gbp_agent.py:63-64), so the handler is present on the agent and this
+one-line restoration is sufficient - nothing else has to change.
+
+Without it, apic_aim's VRF and address-scope notifications are cast into a
+queue nothing consumes and the compute's VRF file goes stale silently:
+ports still bind, so the failure surfaces later as traffic that does not
+route. There is no natural fallback. The subnet_update consumer looks like
+partial cover, but it adds subnet['tenant_id'] to self.updated_vrf while
+the vrf_dict it is intersected against is keyed on 'tenant_name vrf_name'
+strings, so it never matches.
+
+Present on stable/2025.1, stable/2025.2, stable/2026.1 and master, so no
+choice of upstream branch avoids it. Reported to noironetworks; drop this
+patch at the next pin bump if it is fixed upstream.
+
+--- var/lib/kolla/venv/lib/python3/site-packages/opflexagent/gbp_agent.py
++++ var/lib/kolla/venv/lib/python3/site-packages/opflexagent/gbp_agent.py
+@@ -210,6 +210,7 @@
+                      [topics.PORT, topics.DELETE],
+                      [topics.SECURITY_GROUP, topics.UPDATE],
+                      [topics.SUBNET, topics.UPDATE],
++                     [rpc.TOPIC_OPFLEX, rpc.NOTIFY_VRF, topics.UPDATE],
+                      [rpc.TOPIC_OPFLEX, rpc.NOTIFY_SNAT, topics.UPDATE],
+                      [rpc.TOPIC_OPFLEX, rpc.VRF, topics.UPDATE],
+                      [rpc.TOPIC_OPFLEX, rpc.SNAT, topics.UPDATE]]
