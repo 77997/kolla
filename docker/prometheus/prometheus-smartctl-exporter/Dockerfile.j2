@@ -1,0 +1,29 @@
+FROM {{ namespace }}/{{ image_prefix }}prometheus-base:{{ tag }}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build_date }}"
+{% endblock %}
+
+{% import "macros.j2" as macros with context %}
+
+{% block prometheus_smartctl_exporter_header %}{% endblock %}
+
+{% set prometheus_smartctl_exporter_packages = [
+    'smartmontools'
+] %}
+
+{{ macros.install_packages(prometheus_smartctl_exporter_packages | customizable("packages")) }}
+
+{% block prometheus_smartctl_exporter_install %}
+ADD prometheus-smartctl-exporter-archive /prometheus-smartctl-exporter-source
+
+RUN ln -s /prometheus-smartctl-exporter-source/* prometheus-smartctl-exporter \
+    && mkdir -p /opt/smartctl_exporter/ \
+    && cp /prometheus-smartctl-exporter/smartctl_exporter /opt/smartctl_exporter/
+{% endblock %}
+
+{{ macros.kolla_patch_sources() }}
+
+{% block prometheus_smartctl_exporter_footer %}{% endblock %}
+{% block footer %}{% endblock %}
+
+USER root

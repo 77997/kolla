@@ -59,6 +59,13 @@ LABEL maintainer="{{ maintainer }}" name="{{ image_name }}" build-date="{{ build
 
 {{ macros.install_packages(openstack_base_packages | customizable("packages")) }}
 
+{# ppc64le wheel index for pre-built binary wheels (numpy, cryptography, ...) that
+   are too slow to compile under QEMU. Pure-python fork packages (AIM/GBP) are
+   installed from git source instead, so this is only needed on ppc64le. #}
+{% if base_arch == 'ppc64le' %}
+ENV PIP_EXTRA_INDEX_URL=https://77997.github.io/images-ppc64le/simple/
+{% endif %}
+
 {% set openstack_base_pip_packages = [
         'Mako',
         'MarkupSafe',
